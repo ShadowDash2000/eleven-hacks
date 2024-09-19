@@ -3,6 +3,4 @@
 
 export function RegisterAndConfirmAccount(arg1:string):Promise<void>;
 
-export function SolveCaptcha():Promise<string>;
-
 export function UpdateBridge(arg1:string):Promise<void>;

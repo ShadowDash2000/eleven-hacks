@@ -2,10 +2,8 @@ package main
 
 import (
 	"context"
-	"eleven-hacks/internal/chromeproxy"
 	"eleven-hacks/internal/elevenlabs"
 	"eleven-hacks/internal/mailtm"
-	"eleven-hacks/internal/torproxy"
 	"fmt"
 )
 
@@ -28,33 +26,6 @@ func (a *App) startup(ctx context.Context) {
 
 func (a *App) UpdateBridge(bridge string) {
 	a.Bridge = bridge
-}
-
-func (a *App) SolveCaptcha() (string, error) {
-	fmt.Println("Starting captcha solver...")
-
-	tp, err := torproxy.NewTorProxy(a.Bridge)
-	if err != nil {
-		fmt.Println(err)
-		return "", err
-	}
-	defer tp.Close()
-
-	proxyAddress, err := tp.GetProxyAddress()
-	if err != nil {
-		fmt.Println(err)
-		return "", err
-	}
-
-	cp := chromeproxy.NewChromeProxy(proxyAddress)
-	captcha, err := cp.StartCaptchaSolve()
-	if err != nil {
-		fmt.Println(err)
-		return "", err
-	}
-	fmt.Println(captcha)
-
-	return captcha, nil
 }
 
 func (a *App) RegisterAndConfirmAccount(captcha string) error {
@@ -97,6 +68,32 @@ func (a *App) RegisterAndConfirmAccount(captcha string) error {
 	}
 
 	fmt.Println(confirmationData)
+
+	err = el.UpdateAccount(confirmationData.OobCode)
+	if err != nil {
+		fmt.Println(err)
+		return err
+	}
+
+	err = el.PrepareInternalVerification(mailAccount.Address, confirmationData.InternalCode)
+	if err != nil {
+		fmt.Println(err)
+		return err
+	}
+
+	signInData, err := el.SignIn(mailAccount.Address, mailAccount.Password)
+	if err != nil {
+		fmt.Println(err)
+		return err
+	}
+
+	apiKey, err := el.CreateApiKey(signInData.Token)
+	if err != nil {
+		fmt.Println(err)
+		return err
+	}
+
+	fmt.Println(apiKey)
 
 	return nil
 }

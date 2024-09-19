@@ -1,18 +1,10 @@
 import {useState} from 'react';
 import logo from './assets/images/logo-universal.png';
 import './App.css';
-import {RegisterAndConfirmAccount, SolveCaptcha, UpdateBridge} from "../wailsjs/go/main/App";
+import {RegisterAndConfirmAccount, UpdateBridge} from "../wailsjs/go/main/App";
 import "https://js.hcaptcha.com/1/api.js";
 
 function App() {
-    const [captcha, setCaptcha] = useState("Waiting for captcha...");
-
-    function solveCaptcha() {
-        SolveCaptcha().then((captcha) => {
-            setCaptcha(captcha)
-        });
-    }
-
     function updateBridge(e) {
         UpdateBridge(e.target.value)
     }

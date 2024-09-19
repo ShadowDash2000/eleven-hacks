@@ -6,10 +6,6 @@ export function RegisterAndConfirmAccount(arg1) {
   return window['go']['main']['App']['RegisterAndConfirmAccount'](arg1);
 }
 
-export function SolveCaptcha() {
-  return window['go']['main']['App']['SolveCaptcha']();
-}
-
 export function UpdateBridge(arg1) {
   return window['go']['main']['App']['UpdateBridge'](arg1);
 }

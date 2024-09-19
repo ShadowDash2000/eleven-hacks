@@ -13,7 +13,7 @@ import (
 type ElevenLabs struct {
 }
 
-type PreSignUpData struct {
+type PreSignUpRequest struct {
 	AccountMetaData AccountMetaData `json:"account_metadata"`
 	Email           string          `json:"email"`
 	RecaptchaToken  string          `json:"recaptcha_token"`
@@ -30,24 +30,43 @@ type GeoLocation struct {
 	Region  string `json:"region"`
 }
 
-type AccountSignUpData struct {
+type AccountSignUpRequest struct {
 	ClientType        string `json:"clientType"`
 	Email             string `json:"email"`
 	Password          string `json:"password"`
 	ReturnSecureToken bool   `json:"returnSecureToken"`
 }
 
-type AccountUpdateData struct {
+type AccountUpdateRequest struct {
 	OobCode string `json:"oobCode"`
 }
 
-type InternalVerificationData struct {
+type InternalVerificationRequest struct {
 	Email            string `json:"email"`
 	VerificationCode string `json:"verification_code"`
 }
 
-type EmailVerificationData struct {
+type EmailVerificationRequest struct {
 	Email string `json:"email"`
+}
+
+type ApiKeyRequest struct {
+	Name string `json:"name"`
+}
+
+type ApiKeyResponse struct {
+	ApiKey string `json:"xi_api_key"`
+}
+
+type SignInRequest struct {
+	ClientType        string `json:"clientType"`
+	Email             string `json:"email"`
+	Password          string `json:"password"`
+	ReturnSecureToken bool   `json:"returnSecureToken"`
+}
+
+type SignInResponse struct {
+	Token string `json:"idToken"`
 }
 
 const (
@@ -56,7 +75,9 @@ const (
 	SendVerificationEmailUrl       = "https://api.elevenlabs.io/v1/user/send-verification-email"
 	PrepareInternalVerificationUrl = "https://api.elevenlabs.io/v1/user/prepare-internal-verification"
 	AccountSignUpUrl               = "https://identitytoolkit.googleapis.com/v1/accounts:signUp"
+	AccountSignInUrl               = "https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword"
 	AccountUpdateUrl               = "https://identitytoolkit.googleapis.com/v1/accounts:update"
+	CreateApiKeyUrl                = "https://api.elevenlabs.io/v1/user/create-api-key"
 )
 
 func NewElevenLabs() *ElevenLabs {
@@ -68,7 +89,7 @@ func (el *ElevenLabs) Register(email, password, captcha string) error {
 	if err != nil {
 		return err
 	}
-	err = el.SignUpAccount(email, password)
+	err = el.SignUp(email, password)
 	if err != nil {
 		return err
 	}
@@ -81,7 +102,7 @@ func (el *ElevenLabs) Register(email, password, captcha string) error {
 }
 
 func (el *ElevenLabs) PreSignUp(email, captcha string) error {
-	data := &PreSignUpData{
+	data := &PreSignUpRequest{
 		AccountMetaData: AccountMetaData{
 			AgreesToProductUpdates: false,
 			GeoLocation: GeoLocation{
@@ -116,7 +137,7 @@ func (el *ElevenLabs) PreSignUp(email, captcha string) error {
 }
 
 func (el *ElevenLabs) SendVerificationEmail(email string) error {
-	data := &EmailVerificationData{
+	data := &EmailVerificationRequest{
 		Email: email,
 	}
 	dataJson, _ := json.Marshal(data)
@@ -141,8 +162,8 @@ func (el *ElevenLabs) SendVerificationEmail(email string) error {
 	return nil
 }
 
-func (el *ElevenLabs) SignUpAccount(email, password string) error {
-	data := &AccountSignUpData{
+func (el *ElevenLabs) SignUp(email, password string) error {
+	data := &AccountSignUpRequest{
 		ClientType:        "CLIENT_TYPE_WEB",
 		Email:             email,
 		Password:          password,
@@ -178,17 +199,54 @@ func (el *ElevenLabs) SignUpAccount(email, password string) error {
 	return nil
 }
 
+func (el *ElevenLabs) SignIn(email, password string) (*SignInResponse, error) {
+	data := &SignInRequest{
+		ClientType:        "CLIENT_TYPE_WEB",
+		Email:             email,
+		Password:          password,
+		ReturnSecureToken: true,
+	}
+	dataJson, _ := json.Marshal(data)
+
+	req, err := http.NewRequest(http.MethodPost, fmt.Sprintf("%s?key=%s", AccountSignInUrl, GoogleApiKey), bytes.NewBuffer(dataJson))
+	if err != nil {
+		return nil, errors.WithMessage(err, "Unable to create new sign-in request")
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Referer", "https://elevenlabs.io/")
+
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, errors.WithMessage(err, "Unable to execute sign-in request")
+	}
+	defer res.Body.Close()
+
+	if res.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(res.Body)
+		return nil, errors.Errorf("Sign-in request responded with status code %d and body %s", res.StatusCode, string(body))
+	}
+
+	resData := &SignInResponse{}
+	err = json.NewDecoder(res.Body).Decode(&resData)
+	if err != nil {
+		return nil, err
+	}
+
+	return resData, nil
+}
+
 func (el *ElevenLabs) UpdateAccount(oobCode string) error {
-	data := &AccountUpdateData{
+	data := &AccountUpdateRequest{
 		OobCode: oobCode,
 	}
 	dataJson, _ := json.Marshal(data)
 
-	req, err := http.NewRequest(http.MethodPost, fmt.Sprintf("%s?=key=%s", AccountUpdateUrl, GoogleApiKey), bytes.NewBuffer(dataJson))
+	req, err := http.NewRequest(http.MethodPost, fmt.Sprintf("%s?key=%s", AccountUpdateUrl, GoogleApiKey), bytes.NewBuffer(dataJson))
 	if err != nil {
 		return errors.WithMessage(err, "Unable to create new account update request")
 	}
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Referer", "https://elevenlabs.io/")
 
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -205,7 +263,7 @@ func (el *ElevenLabs) UpdateAccount(oobCode string) error {
 }
 
 func (el *ElevenLabs) PrepareInternalVerification(email, verificationCode string) error {
-	data := &InternalVerificationData{
+	data := &InternalVerificationRequest{
 		Email:            email,
 		VerificationCode: verificationCode,
 	}
@@ -229,4 +287,37 @@ func (el *ElevenLabs) PrepareInternalVerification(email, verificationCode string
 	}
 
 	return nil
+}
+
+func (el *ElevenLabs) CreateApiKey(token string) (*ApiKeyResponse, error) {
+	data := &ApiKeyRequest{
+		Name: "ApiKey",
+	}
+	dataJson, _ := json.Marshal(data)
+
+	req, err := http.NewRequest(http.MethodPost, CreateApiKeyUrl, bytes.NewBuffer(dataJson))
+	if err != nil {
+		return nil, errors.WithMessage(err, "Unable to create new create api key request")
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, errors.WithMessage(err, "Unable to execute create api key request")
+	}
+	defer res.Body.Close()
+
+	if res.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(res.Body)
+		return nil, errors.Errorf("Create api key request responded with status code %d and body %s", res.StatusCode, string(body))
+	}
+
+	resData := &ApiKeyResponse{}
+	err = json.NewDecoder(res.Body).Decode(&resData)
+	if err != nil {
+		return nil, err
+	}
+
+	return resData, nil
 }
