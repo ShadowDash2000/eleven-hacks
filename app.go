@@ -4,13 +4,17 @@ import (
 	"context"
 	"eleven-hacks/internal/elevenlabs"
 	"eleven-hacks/internal/mailtm"
+	"errors"
 	"fmt"
+
+	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // App struct
 type App struct {
 	ctx    context.Context
 	Bridge string
+	ApiKey *elevenlabs.ApiKeyResponse
 }
 
 // NewApp creates a new App application struct
@@ -94,6 +98,57 @@ func (a *App) RegisterAndConfirmAccount(captcha string) error {
 	}
 
 	fmt.Println(apiKey)
+	a.ApiKey = apiKey
+
+	return nil
+}
+
+func (a *App) CreateDubbing() error {
+	if a.ApiKey == nil {
+		runtime.EventsEmit(a.ctx, "LOG", "You need to create an account first before dubbing.")
+		return errors.New("you need to create an account first before dubbing")
+	}
+
+	filePath, err := runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
+		Title: "Choose file for dubbing",
+		Filters: []runtime.FileFilter{
+			{
+				DisplayName: "Videos (*.mp4,*.webm)",
+				Pattern:     "*.mp4;*.webm",
+			},
+		},
+	})
+	if err != nil {
+		return err
+	} else if filePath == "" {
+		runtime.EventsEmit(a.ctx, "LOG", "File path is not specified.")
+		return errors.New("file path is not specified")
+	}
+
+	savePath, err := runtime.OpenDirectoryDialog(a.ctx, runtime.OpenDialogOptions{
+		Title: "Choose dubbing save folder",
+	})
+	if err != nil {
+		return err
+	} else if savePath == "" {
+		runtime.EventsEmit(a.ctx, "LOG", "Save path is not specified.")
+		return errors.New("save path is not specified")
+	}
+
+	err = elevenlabs.NewElevenLabs().WaitForDubbedFileAndSave(
+		a.ctx,
+		120,
+		10,
+		filePath,
+		savePath,
+		a.Bridge,
+		a.ApiKey,
+	)
+	if err != nil {
+		return err
+	}
+
+	a.ApiKey = nil
 
 	return nil
 }
