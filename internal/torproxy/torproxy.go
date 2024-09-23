@@ -2,11 +2,12 @@ package torproxy
 
 import (
 	"context"
+	"os"
+	"time"
+
 	"github.com/cretz/bine/process"
 	"github.com/cretz/bine/tor"
 	"github.com/pkg/errors"
-	"os"
-	"time"
 )
 
 type TorProxy struct {
@@ -35,6 +36,7 @@ func NewTorProxy(bridge string) (*TorProxy, error) {
 		ProcessCreator:  process.NewCreator("C:\\Users\\scout\\Desktop\\Tor Browser\\Browser\\TorBrowser\\Tor\\tor.exe"),
 		TempDataDirBase: tmpPath,
 		ExtraArgs:       args,
+		DebugWriter:     nil,
 	})
 	if err != nil {
 		return nil, errors.WithMessage(err, "Unable to start Tor")
@@ -67,6 +69,15 @@ func (tp *TorProxy) Close() error {
 	}*/
 
 	return nil
+}
+
+func (tp *TorProxy) SwapChain() error {
+	_, err := tp.Tor.Control.SendRequest("SIGNAL NEWNYM")
+	if err != nil {
+		return err
+	}
+
+	return err
 }
 
 func (tp *TorProxy) GetProxyAddress() (string, error) {
