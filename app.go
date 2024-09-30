@@ -32,16 +32,22 @@ func (a *App) UpdateBridge(bridge string) {
 	a.Bridge = bridge
 }
 
+func (a *App) GetLanguages() map[string]string {
+	return elevenlabs.GetLanguages()
+}
+
 func (a *App) RegisterAndConfirmAccount(captcha string) error {
+	runtime.EventsEmit(a.ctx, "LOG", "Trying to create and confirm a new account...")
+
 	mail, err := mailtm.NewMailTM()
 	if err != nil {
-		fmt.Println(err)
+		runtime.EventsEmit(a.ctx, "LOG", err.Error())
 		return err
 	}
 
 	mailAccount, err := mail.NewAccount()
 	if err != nil {
-		fmt.Println(err)
+		runtime.EventsEmit(a.ctx, "LOG", err.Error())
 		return err
 	}
 	defer mail.DeleteAccount(mailAccount)
@@ -49,25 +55,25 @@ func (a *App) RegisterAndConfirmAccount(captcha string) error {
 	el := elevenlabs.NewElevenLabs()
 	err = el.Register(mailAccount.Address, mailAccount.Password, captcha)
 	if err != nil {
-		fmt.Println(err)
+		runtime.EventsEmit(a.ctx, "LOG", err.Error())
 		return err
 	}
 
 	message, err := mail.WaitForConfirmationEmail(mailAccount, 20)
 	if err != nil {
-		fmt.Println(err)
+		runtime.EventsEmit(a.ctx, "LOG", err.Error())
 		return err
 	}
 
 	url, err := mail.GetConfirmationUrl(message.Html[0])
 	if err != nil {
-		fmt.Println(err)
+		runtime.EventsEmit(a.ctx, "LOG", err.Error())
 		return err
 	}
 
 	confirmationData, err := mail.GetConfirmationData(url)
 	if err != nil {
-		fmt.Println(err)
+		runtime.EventsEmit(a.ctx, "LOG", err.Error())
 		return err
 	}
 
@@ -75,29 +81,29 @@ func (a *App) RegisterAndConfirmAccount(captcha string) error {
 
 	err = el.UpdateAccount(confirmationData.OobCode)
 	if err != nil {
-		fmt.Println(err)
+		runtime.EventsEmit(a.ctx, "LOG", err.Error())
 		return err
 	}
 
 	err = el.PrepareInternalVerification(mailAccount.Address, confirmationData.InternalCode)
 	if err != nil {
-		fmt.Println(err)
+		runtime.EventsEmit(a.ctx, "LOG", err.Error())
 		return err
 	}
 
 	signInData, err := el.SignIn(mailAccount.Address, mailAccount.Password)
 	if err != nil {
-		fmt.Println(err)
+		runtime.EventsEmit(a.ctx, "LOG", err.Error())
 		return err
 	}
 
 	apiKey, err := el.CreateApiKey(signInData.Token)
 	if err != nil {
-		fmt.Println(err)
+		runtime.EventsEmit(a.ctx, "LOG", err.Error())
 		return err
 	}
 
-	fmt.Println(apiKey)
+	runtime.EventsEmit(a.ctx, "LOG", "Account created successfully. Your API key is: "+apiKey.ApiKey)
 	a.ApiKey = apiKey
 
 	return nil

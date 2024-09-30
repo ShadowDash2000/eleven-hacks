@@ -21,6 +21,20 @@ body {
 }
 
 #app {
-    height: 100vh;
+    height: auto;
     text-align: center;
+    position: absolute;
+    top: 10%;
+    left: 0;
+    right: 0;
+}
+
+.input-box {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+textarea {
+    resize: none;
 }
