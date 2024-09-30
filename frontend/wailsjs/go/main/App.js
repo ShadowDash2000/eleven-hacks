@@ -6,6 +6,10 @@ export function CreateDubbing() {
   return window['go']['main']['App']['CreateDubbing']();
 }
 
+export function GetLanguages() {
+  return window['go']['main']['App']['GetLanguages']();
+}
+
 export function RegisterAndConfirmAccount(arg1) {
   return window['go']['main']['App']['RegisterAndConfirmAccount'](arg1);
 }

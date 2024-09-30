@@ -105,10 +105,46 @@ const (
 	GetDubbedFileUrl               = "https://api.elevenlabs.io/v1/dubbing/%s/audio/%s"
 )
 
+var Languages = map[string]string{
+	"eng": "English",
+	"hi":  "Hindi",
+	"pt":  "Portuguese",
+	"zh":  "Chinese",
+	"es":  "Spanish",
+	"fr":  "French",
+	"de":  "German",
+	"ja":  "Japanese",
+	"ar":  "Arabic",
+	"ru":  "Russian",
+	"ko":  "Korean",
+	"id":  "Indonesian",
+	"it":  "Italian",
+	"nl":  "Dutch",
+	"tr":  "Turkish",
+	"pl":  "Polish",
+	"sv":  "Swedish",
+	"fil": "Filipino",
+	"ms":  "Malay",
+	"ro":  "Romanian",
+	"uk":  "Ukrainian",
+	"el":  "Greek",
+	"cs":  "Czech",
+	"da":  "Danish",
+	"fi":  "Finnish",
+	"bg":  "Bulgarian",
+	"hr":  "Croatian",
+	"sk":  "Slovak",
+	"ta":  "Tamil",
+}
+
 var ErrUnusualActivityDetected = errors.New("Unusual activity detected. Change proxy.")
 
 func NewElevenLabs() *ElevenLabs {
 	return &ElevenLabs{}
+}
+
+func GetLanguages() map[string]string {
+	return Languages
 }
 
 func (el *ElevenLabs) Register(email, password, captcha string) error {
@@ -371,6 +407,7 @@ func (el *ElevenLabs) CreateDubbing(filePath string, apiKey *ApiKeyResponse, pro
 	writer.WriteField("target_lang", "ru")
 	writer.WriteField("watermark", "true")
 	writer.WriteField("end_time", "220")
+	writer.WriteField("use_profanity_filter", "false")
 	formFileWriter, _ := multiparthelper.CreateFormFile("file", filepath.Base(file.Name()), fileContentType, writer)
 	io.Copy(formFileWriter, file)
 	writer.Close()
@@ -491,6 +528,7 @@ func (el *ElevenLabs) WaitForDubbedFileAndSave(ctx context.Context, maxAttempts,
 			attempt += 1
 
 			proxy, _ := torproxy.NewTorProxy(bridge)
+			defer proxy.Close()
 			createDubbingRes, err = el.CreateDubbing(filePath, apiKey, proxy)
 			if err == nil {
 				runtime.EventsEmit(ctx, "LOG", "Dubbing successfully started.")
