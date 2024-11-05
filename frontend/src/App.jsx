@@ -1,35 +1,73 @@
-import { useState } from 'react';
-import logo from './assets/images/logo-universal.png';
+import {useEffect, useRef, useState} from 'react';
+import { main } from "../wailsjs/go/models";
+import HCaptcha from '@hcaptcha/react-hcaptcha';
 import './App.css';
-import { RegisterAndConfirmAccount, CreateDubbing, GetLanguages, UpdateBridge } from "../wailsjs/go/main/App";
-import "https://js.hcaptcha.com/1/api.js";
+import {
+    SetSavePath,
+    ChooseFiles,
+    StartDubbing,
+    GetLanguages,
+    UpdateBridge,
+    AddDubbingFile
+} from "../wailsjs/go/main/App";
+
+const hCaptchaSiteKey = "3aad1500-7e79-4051-aac5-6852324dab76";
 
 function App() {
     const [logs, setLog] = useState("");
-    const addLog = (text) => setLog(logs + text + "\n");
+    const addLog = (text) => {
+        setLog((prev) => prev + text + "\n");
+        textAreaRef.current.scrollTop = textAreaRef.current.scrollHeight;
+    }
 
-    function updateBridge(e) {
+    const textAreaRef = useRef(null);
+    const hCaptchaRef = useRef(null);
+
+    const [savePath, setSavePath] = useState("");
+
+    const updateBridge = (e) => {
         UpdateBridge(e.target.value)
     }
 
-    function register() {
-        let iframe = document.querySelector('iframe');
-        let captchaResponse = iframe.dataset.hcaptchaResponse;
-        if (captchaResponse) {
-            RegisterAndConfirmAccount(captchaResponse);
+    const chooseFiles = async () => {
+        let filePaths = await ChooseFiles();
+        addLog("Chosen files: " + filePaths.join(", "))
+        await setTokens(filePaths);
+    }
+
+    const setTokens = async (filePaths) => {
+        for (const filePath of filePaths) {
+            const res = await hCaptchaRef.current.execute({ async: true });
+            if (res.response) {
+                let token = new main.Token();
+                token.FilePath = filePath;
+                token.Token = res.response;
+
+                await AddDubbingFile(token);
+
+                addLog("Captcha responded with token for the file " + filePath)
+            } else {
+                addLog("Captcha responded with error for the file " + filePath)
+            }
+
+            await hCaptchaRef.current.resetCaptcha({ async: true });
+            await new Promise(resolve => setTimeout(resolve, 2000));
         }
     }
 
-    function dubDub() {
-        CreateDubbing()
+    const startDubbing = () => {
+        StartDubbing("eng", "ru");
     }
 
-    window.runtime.EventsOn('LOG', (logMessage) => {
-        console.log(logMessage);
-        addLog(logMessage);
+    useEffect(() => {
+        window.runtime.EventsOn('LOG', (logMessage) => {
+            console.log(logMessage);
+            addLog(logMessage);
+        });
+        return () => window.runtime.EventsOff('LOG')
     });
 
-    async function getLanguages() {
+    const getLanguages = async () => {
         let lang = await GetLanguages();
     }
 
@@ -40,17 +78,36 @@ function App() {
                 <input id="name" className="input" onChange={updateBridge} autoComplete="off" name="bridge" type="text" />
             </div>
             <div id="input" className="input-box">
-                <h2>1. Create an account</h2>
-                <div className="h-captcha" data-sitekey="3aad1500-7e79-4051-aac5-6852324dab76"></div>
-                <button onClick={register}>Register an account</button>
+                <h2>1. Select save folder</h2>
+                <input readOnly={true} value={savePath} />
+                <button onClick={async () => { setSavePath(await SetSavePath()) }}>Select save folder</button>
             </div>
             <div>
-                <h2>2. Dub a video</h2>
-                <button onClick={dubDub}>Dub-dub!</button>
+                <h2>2. Select files for dubbing (captcha may appear)</h2>
+                <button onClick={chooseFiles}>Select files</button>
+                <HCaptcha
+                    sitekey={hCaptchaSiteKey}
+                    ref={hCaptchaRef}
+                />
+            </div>
+            <div>
+                <h2>3. Start dubbing</h2>
+                <button onClick={startDubbing}>Start dubbing</button>
             </div>
             <div>
                 <h2>Logs</h2>
-                <textarea value={logs} readOnly={true} rows={10} cols={50}></textarea>
+
+                <div className="textarea-wrapper">
+                    <video className="background-video" autoPlay loop muted>
+                        <source src="src/assets/videos/in-the-end.mp4" type="video/mp4"/>
+                    </video>
+                    <textarea
+                        value={logs}
+                        readOnly={true}
+                        ref={textAreaRef}
+                    >
+                    </textarea>
+                </div>
             </div>
         </div>
     )

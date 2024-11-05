@@ -2,6 +2,7 @@ package torproxy
 
 import (
 	"context"
+	"github.com/cretz/bine/control"
 	"os"
 	"time"
 
@@ -21,7 +22,7 @@ func NewTorProxy(bridge string) (*TorProxy, error) {
 	if bridge != "" {
 		args = append(args, []string{
 			"UseBridges", "1",
-			"Bridge", bridge,
+			"bridge", bridge,
 			"ClientTransportPlugin", "obfs4 exec C:\\Users\\scout\\Desktop\\Tor Browser\\Browser\\TorBrowser\\Tor\\PluggableTransports\\lyrebird.exe",
 		}...)
 	}
@@ -58,26 +59,26 @@ func NewTorProxy(bridge string) (*TorProxy, error) {
 }
 
 func (tp *TorProxy) Close() error {
-	err := tp.Tor.Close()
+	err := tp.Onion.Close()
+	if err != nil {
+		return errors.WithMessage(err, "Unable to close onion service")
+	}
+
+	err = tp.Tor.Close()
 	if err != nil {
 		return errors.WithMessage(err, "Unable to close Tor")
 	}
 
-	/*err = tp.Onion.Close()
-	if err != nil {
-		return errors.WithMessage(err, "Unable to close onion service")
-	}*/
-
 	return nil
 }
 
-func (tp *TorProxy) SwapChain() error {
-	_, err := tp.Tor.Control.SendRequest("SIGNAL NEWNYM")
+func (tp *TorProxy) SwapChain() (*control.Response, error) {
+	res, err := tp.Tor.Control.SendRequest("SIGNAL NEWNYM")
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	return err
+	return res, err
 }
 
 func (tp *TorProxy) GetProxyAddress() (string, error) {
