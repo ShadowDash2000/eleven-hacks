@@ -9,9 +9,13 @@ export function ChooseFiles():Promise<Array<string>>;
 
 export function GetLanguages():Promise<{[key: string]: string}>;
 
+export function GetTorPath():Promise<string>;
+
 export function RegisterAndConfirmAccount(arg1:string):Promise<elevenlabs.ApiKeyResponse>;
 
 export function SetSavePath():Promise<string>;
+
+export function SetTorPath():Promise<string>;
 
 export function StartDubbing(arg1:string,arg2:string):Promise<void>;
 

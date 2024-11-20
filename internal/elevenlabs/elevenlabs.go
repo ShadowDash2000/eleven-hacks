@@ -3,6 +3,7 @@ package elevenlabs
 import (
 	"bytes"
 	"context"
+	"eleven-hacks/internal/config"
 	"eleven-hacks/internal/torproxy"
 	"eleven-hacks/pkg/multiparthelper"
 	"encoding/json"
@@ -20,6 +21,7 @@ import (
 )
 
 type ElevenLabs struct {
+	config *config.Config
 }
 
 type PreSignUpRequest struct {
@@ -146,8 +148,10 @@ var Languages = map[string]string{
 
 var ErrUnusualActivityDetected = errors.New("Unusual activity detected. Change proxy.")
 
-func NewElevenLabs() *ElevenLabs {
-	return &ElevenLabs{}
+func NewElevenLabs(config *config.Config) *ElevenLabs {
+	return &ElevenLabs{
+		config: config,
+	}
 }
 
 func GetLanguages() map[string]string {
@@ -535,7 +539,7 @@ func (el *ElevenLabs) WaitForDubbedFileAndSave(ctx context.Context, maxAttempts,
 
 	fileName := filepath.Base(filePath)
 
-	proxy, err := torproxy.NewTorProxy(bridge)
+	proxy, err := torproxy.NewTorProxy(bridge, el.config)
 	if err != nil {
 		runtime.EventsEmit(ctx, "LOG", "Failed to start Tor proxy (maybe because it is blocked in your country).")
 		return err

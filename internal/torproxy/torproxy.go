@@ -2,6 +2,8 @@ package torproxy
 
 import (
 	"context"
+	"eleven-hacks/internal/config"
+	"fmt"
 	"github.com/cretz/bine/control"
 	"os"
 	"time"
@@ -16,14 +18,14 @@ type TorProxy struct {
 	Onion *tor.OnionService
 }
 
-func NewTorProxy(bridge string) (*TorProxy, error) {
+func NewTorProxy(bridge string, config *config.Config) (*TorProxy, error) {
 	var args []string
 
 	if bridge != "" {
 		args = append(args, []string{
 			"UseBridges", "1",
 			"bridge", bridge,
-			"ClientTransportPlugin", "obfs4 exec C:\\Users\\scout\\Desktop\\Tor Browser\\Browser\\TorBrowser\\Tor\\PluggableTransports\\lyrebird.exe",
+			"ClientTransportPlugin", fmt.Sprintf("obfs4 exec %s", config.LyrebirdPath),
 		}...)
 	}
 
@@ -34,7 +36,7 @@ func NewTorProxy(bridge string) (*TorProxy, error) {
 	}
 
 	t, err := tor.Start(nil, &tor.StartConf{
-		ProcessCreator:  process.NewCreator("C:\\Users\\scout\\Desktop\\Tor Browser\\Browser\\TorBrowser\\Tor\\tor.exe"),
+		ProcessCreator:  process.NewCreator(config.TorPath),
 		TempDataDirBase: tmpPath,
 		ExtraArgs:       args,
 		DebugWriter:     nil,

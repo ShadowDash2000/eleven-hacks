@@ -8,7 +8,9 @@ import {
     StartDubbing,
     GetLanguages,
     UpdateBridge,
-    AddDubbingFile
+    AddDubbingFile,
+    GetTorPath,
+    SetTorPath,
 } from "../wailsjs/go/main/App";
 
 const hCaptchaSiteKey = "3aad1500-7e79-4051-aac5-6852324dab76";
@@ -24,6 +26,10 @@ function App() {
     const hCaptchaRef = useRef(null);
 
     const [savePath, setSavePath] = useState("");
+    const [torPath, setTorPath] = useState("");
+    (async () => {
+        setTorPath(await GetTorPath())
+    })();
 
     const updateBridge = (e) => {
         UpdateBridge(e.target.value)
@@ -75,15 +81,26 @@ function App() {
         <div id="app">
             <div className="input-box">
                 <span>Bridge (use it if Tor is blocked in your country)</span>
-                <input id="name" className="input" onChange={updateBridge} autoComplete="off" name="bridge" type="text" />
+                <input className="input" onChange={updateBridge} autoComplete="off" name="bridge"
+                       type="text"/>
+            </div>
+            <div className="input-box">
+                <span>Tor path</span>
+                <input readOnly={true} value={torPath}/>
+                <button onClick={async () => setTorPath(await SetTorPath())}>Select Tor browser folder</button>
             </div>
             <div id="input" className="input-box">
                 <h2>1. Select save folder</h2>
-                <input readOnly={true} value={savePath} />
-                <button onClick={async () => { setSavePath(await SetSavePath()) }}>Select save folder</button>
+                <input readOnly={true} value={savePath}/>
+                <button onClick={async () => {
+                    setSavePath(await SetSavePath())
+                }}>Select save folder
+                </button>
             </div>
             <div>
-                <h2>2. Select files for dubbing (captcha may appear)</h2>
+                <h2>2. Select files for dubbing</h2>
+                <p>There is no need for manual captcha check. Solve the captcha only if "puzzle" appears.
+                    Manual captcha should appear if you're dubbing many videos in a row.</p>
                 <button onClick={chooseFiles}>Select files</button>
                 <HCaptcha
                     sitekey={hCaptchaSiteKey}
@@ -92,6 +109,7 @@ function App() {
             </div>
             <div>
                 <h2>3. Start dubbing</h2>
+                <p>If some videos have failed while dubbing, you can start dubbing again. API tokens keep alive while the program is open.</p>
                 <button onClick={startDubbing}>Start dubbing</button>
             </div>
             <div>

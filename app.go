@@ -2,11 +2,15 @@ package main
 
 import (
 	"context"
+	"eleven-hacks/internal/config"
 	"eleven-hacks/internal/elevenlabs"
 	"eleven-hacks/internal/mailtm"
 	"errors"
 	"fmt"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
+	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 )
 
@@ -17,6 +21,7 @@ type App struct {
 	savePath     string
 	dubbingFiles []DubbingFile
 	mx           *sync.RWMutex
+	config       *config.Config
 }
 
 type DubbingFile struct {
@@ -31,8 +36,12 @@ type Token struct {
 
 // NewApp creates a new App application struct
 func NewApp() *App {
+	config := config.NewConfig()
+	config.Load()
+
 	return &App{
-		mx: &sync.RWMutex{},
+		mx:     &sync.RWMutex{},
+		config: config,
 	}
 }
 
@@ -44,6 +53,47 @@ func (a *App) startup(ctx context.Context) {
 
 func (a *App) UpdateBridge(bridge string) {
 	a.bridge = bridge
+}
+
+func (a *App) GetTorPath() string {
+	if a.config.TorPath == "" {
+		return ""
+	}
+
+	return strings.TrimSuffix(a.config.TorPath, "Browser/TorBrowser/Tor/tor.exe")
+}
+
+func (a *App) SetTorPath() (string, error) {
+	torPath, err := runtime.OpenDirectoryDialog(a.ctx, runtime.OpenDialogOptions{
+		Title: "Choose Tor browser folder",
+	})
+	if err != nil {
+		return "", err
+	} else if torPath == "" {
+		runtime.EventsEmit(a.ctx, "LOG", "Tor path is not specified.")
+		return "", errors.New("tor path is not specified")
+	}
+
+	torExePath := filepath.Join(torPath, "Browser/TorBrowser/Tor/tor.exe")
+
+	_, err = os.Open(torExePath)
+	if os.IsNotExist(err) {
+		return "", errors.New("tor.exe not found")
+	}
+
+	lyrebirdExePath := filepath.Join(torPath, "Browser/TorBrowser/Tor/PluggableTransports/lyrebird.exe")
+
+	_, err = os.Open(lyrebirdExePath)
+	if os.IsNotExist(err) {
+		return "", errors.New("lyrebird.exe not found")
+	}
+
+	a.config.SetField("TorPath", torExePath)
+	a.config.SetField("LyrebirdPath", lyrebirdExePath)
+
+	runtime.EventsEmit(a.ctx, "LOG", "Successfully found the Tor browser.")
+
+	return torPath, nil
 }
 
 func (a *App) GetLanguages() map[string]string {
@@ -79,8 +129,8 @@ func (a *App) ChooseFiles() ([]string, error) {
 	if err != nil {
 		return nil, err
 	} else if len(filePaths) == 0 {
-		runtime.EventsEmit(a.ctx, "LOG", "File path is not specified.")
-		return nil, errors.New("file path is not specified")
+		runtime.EventsEmit(a.ctx, "LOG", "File(-s) path is not specified.")
+		return nil, errors.New("file(-s) path is not specified")
 	}
 
 	return filePaths, nil
@@ -100,6 +150,12 @@ func (a *App) AddDubbingFile(token Token) error {
 }
 
 func (a *App) StartDubbing(srcLang, targetLang string) error {
+	if a.config.TorPath == "" {
+		err := errors.New("Please specify the Tor path first.")
+		runtime.EventsEmit(a.ctx, "LOG", err.Error())
+		return err
+	}
+
 	if a.savePath == "" {
 		err := errors.New("Please select a save folder first.")
 		runtime.EventsEmit(a.ctx, "LOG", err.Error())
@@ -122,7 +178,7 @@ func (a *App) StartDubbing(srcLang, targetLang string) error {
 
 	for _, dubbingFile := range dubbingFiles {
 		go func(dubbingFile DubbingFile) {
-			err := elevenlabs.NewElevenLabs().WaitForDubbedFileAndSave(
+			err := elevenlabs.NewElevenLabs(a.config).WaitForDubbedFileAndSave(
 				a.ctx,
 				120,
 				10,
@@ -158,7 +214,7 @@ func (a *App) RegisterAndConfirmAccount(captcha string) (*elevenlabs.ApiKeyRespo
 	}
 	defer mail.DeleteAccount(mailAccount)
 
-	el := elevenlabs.NewElevenLabs()
+	el := elevenlabs.NewElevenLabs(a.config)
 	err = el.Register(mailAccount.Address, mailAccount.Password, captcha)
 	if err != nil {
 		runtime.EventsEmit(a.ctx, "LOG", err.Error())

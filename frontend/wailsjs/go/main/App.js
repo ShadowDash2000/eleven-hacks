@@ -14,12 +14,20 @@ export function GetLanguages() {
   return window['go']['main']['App']['GetLanguages']();
 }
 
+export function GetTorPath() {
+  return window['go']['main']['App']['GetTorPath']();
+}
+
 export function RegisterAndConfirmAccount(arg1) {
   return window['go']['main']['App']['RegisterAndConfirmAccount'](arg1);
 }
 
 export function SetSavePath() {
   return window['go']['main']['App']['SetSavePath']();
+}
+
+export function SetTorPath() {
+  return window['go']['main']['App']['SetTorPath']();
 }
 
 export function StartDubbing(arg1, arg2) {
