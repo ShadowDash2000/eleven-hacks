@@ -24,9 +24,9 @@ body {
     height: auto;
     text-align: center;
     position: absolute;
-    top: 10%;
-    left: 0;
-    right: 0;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
 }
 
 .input-box {
@@ -35,6 +35,30 @@ body {
     align-items: center;
 }
 
+.textarea-wrapper {
+    position: relative;
+    width: 754px;
+    height: 156px;
+    margin: 0 auto;
+}
+
+.background-video {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    z-index: 1;
+    opacity: 0.8;
+}
+
 textarea {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    z-index: 2;
+    background-color: rgba(255, 255, 255, 0.5);
+    border: 1px solid #ccc;
     resize: none;
 }

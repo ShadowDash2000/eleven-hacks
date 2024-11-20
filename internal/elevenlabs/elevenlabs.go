@@ -3,6 +3,7 @@ package elevenlabs
 import (
 	"bytes"
 	"context"
+	"eleven-hacks/internal/config"
 	"eleven-hacks/internal/torproxy"
 	"eleven-hacks/pkg/multiparthelper"
 	"encoding/json"
@@ -20,6 +21,7 @@ import (
 )
 
 type ElevenLabs struct {
+	config *config.Config
 }
 
 type PreSignUpRequest struct {
@@ -91,6 +93,13 @@ type GetDubbingDataResponse struct {
 	Err             string   `json:"error"`
 }
 
+type CreateDubbingErrorResponse struct {
+	Detail struct {
+		Status  string `json:"status"`
+		Message string `json:"message"`
+	} `json:"detail"`
+}
+
 const (
 	GoogleApiKey                   = "AIzaSyBSsRE_1Os04-bxpd5JTLIniy3UK4OqKys"
 	PreSignUpUrl                   = "https://api.elevenlabs.io/v1/user/pre-sign-up"
@@ -139,8 +148,10 @@ var Languages = map[string]string{
 
 var ErrUnusualActivityDetected = errors.New("Unusual activity detected. Change proxy.")
 
-func NewElevenLabs() *ElevenLabs {
-	return &ElevenLabs{}
+func NewElevenLabs(config *config.Config) *ElevenLabs {
+	return &ElevenLabs{
+		config: config,
+	}
 }
 
 func GetLanguages() map[string]string {
@@ -438,6 +449,12 @@ func (el *ElevenLabs) CreateDubbing(filePath string, apiKey *ApiKeyResponse, pro
 			return nil, ErrUnusualActivityDetected
 		}
 
+		errResponse := &CreateDubbingErrorResponse{}
+		err = json.NewDecoder(res.Body).Decode(&errResponse)
+		if err == nil && errResponse.Detail.Status == "detected_unusual_activity" {
+			return nil, ErrUnusualActivityDetected
+		}
+
 		body, _ := io.ReadAll(res.Body)
 		return nil, errors.Errorf("Create dubbing request responded with status code %d and body %s", res.StatusCode, string(body))
 	}
@@ -479,7 +496,7 @@ func (el *ElevenLabs) GetDubbingData(dubbing *CreateDubbingResponse, apiKey *Api
 	return resData, nil
 }
 
-func (el *ElevenLabs) SaveDubbedFile(savePath string, dubbing *GetDubbingDataResponse, apiKey *ApiKeyResponse) error {
+func (el *ElevenLabs) SaveDubbedFile(savePath, fileName string, dubbing *GetDubbingDataResponse, apiKey *ApiKeyResponse) error {
 	err := os.MkdirAll(savePath, os.ModePerm)
 	if err != nil {
 		return errors.WithMessagef(err, "Unable to create path %s for save dubbed file request", savePath)
@@ -503,7 +520,7 @@ func (el *ElevenLabs) SaveDubbedFile(savePath string, dubbing *GetDubbingDataRes
 		return errors.Errorf("Save dubbed file request responded with status code %d and body %s", res.StatusCode, string(body))
 	}
 
-	file, err := os.Create(filepath.Join(savePath, dubbing.DubbingId+".mp4"))
+	file, err := os.Create(filepath.Join(savePath, fileName+".mp4"))
 	if err != nil {
 		return errors.WithMessagef(err, "Unable to create file %s for save dubbed file request", file.Name())
 	}
@@ -520,6 +537,15 @@ func (el *ElevenLabs) WaitForDubbedFileAndSave(ctx context.Context, maxAttempts,
 
 	runtime.EventsEmit(ctx, "LOG", fmt.Sprintf("Dubbing file: %s", filePath))
 
+	fileName := filepath.Base(filePath)
+
+	proxy, err := torproxy.NewTorProxy(bridge, el.config)
+	if err != nil {
+		runtime.EventsEmit(ctx, "LOG", "Failed to start Tor proxy (maybe because it is blocked in your country).")
+		return err
+	}
+	defer proxy.Close()
+
 	wg.Add(1)
 	maxCreateDubbingAttempts := 100
 	attempt := 0
@@ -527,11 +553,17 @@ func (el *ElevenLabs) WaitForDubbedFileAndSave(ctx context.Context, maxAttempts,
 		for {
 			attempt += 1
 
-			proxy, _ := torproxy.NewTorProxy(bridge)
-			defer proxy.Close()
+			if attempt > 0 {
+				_, err = proxy.SwapChain()
+				if err != nil {
+					runtime.EventsEmit(ctx, "LOG", fmt.Sprintf("Failed to swap NYM (IP) - %s", fileName))
+					continue
+				}
+			}
+
 			createDubbingRes, err = el.CreateDubbing(filePath, apiKey, proxy)
 			if err == nil {
-				runtime.EventsEmit(ctx, "LOG", "Dubbing successfully started.")
+				runtime.EventsEmit(ctx, "LOG", fmt.Sprintf("Dubbing successfully started. - %s", fileName))
 				wg.Done()
 				return
 			}
@@ -544,13 +576,17 @@ func (el *ElevenLabs) WaitForDubbedFileAndSave(ctx context.Context, maxAttempts,
 			}
 
 			if errors.Is(err, ErrUnusualActivityDetected) {
-				runtime.EventsEmit(ctx, "LOG", fmt.Sprintf("Bad proxy IP, trying to create dubbing againg. [%d/%d]", attempt, maxCreateDubbingAttempts))
+				runtime.EventsEmit(ctx, "LOG", fmt.Sprintf("Bad proxy IP, trying to create dubbing again. [%d/%d] - %s", attempt, maxCreateDubbingAttempts, fileName))
 			} else {
 				fmt.Println(err)
 			}
 		}
 	}()
 	wg.Wait()
+
+	if createDubbingRes == nil {
+		return err
+	}
 
 	ticker := time.NewTicker(time.Duration(interval) * time.Second)
 	attempt = 0
@@ -575,12 +611,12 @@ func (el *ElevenLabs) WaitForDubbedFileAndSave(ctx context.Context, maxAttempts,
 				wg.Done()
 				return
 			case "dubbed":
-				runtime.EventsEmit(ctx, "LOG", "Dubbing is ready. Downloading...")
+				runtime.EventsEmit(ctx, "LOG", fmt.Sprintf("Dubbing is ready. Downloading... - %s", fileName))
 				ticker.Stop()
 				wg.Done()
 				return
 			case "dubbing":
-				runtime.EventsEmit(ctx, "LOG", "Dubbing in progress.")
+				runtime.EventsEmit(ctx, "LOG", fmt.Sprintf("Dubbing in progress. - %s", fileName))
 			default:
 				err = errors.New(dubbingData.Err)
 				ticker.Stop()
@@ -601,7 +637,7 @@ func (el *ElevenLabs) WaitForDubbedFileAndSave(ctx context.Context, maxAttempts,
 		return err
 	}
 
-	err = el.SaveDubbedFile(savePath, dubbingData, apiKey)
+	err = el.SaveDubbedFile(savePath, fileName, dubbingData, apiKey)
 	if err != nil {
 		return err
 	}

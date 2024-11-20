@@ -41,4 +41,4 @@ require (
 
 // replace github.com/wailsapp/wails/v2 v2.9.1 => C:\Users\scout\go\pkg\mod
 
-replace github.com/felixstrobel/mailtm => github.com/ShadowDash2000/mailtm v0.3.1
+replace github.com/felixstrobel/mailtm => github.com/ShadowDash2000/mailtm v0.3.2

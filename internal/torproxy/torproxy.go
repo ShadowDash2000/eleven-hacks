@@ -2,6 +2,9 @@ package torproxy
 
 import (
 	"context"
+	"eleven-hacks/internal/config"
+	"fmt"
+	"github.com/cretz/bine/control"
 	"os"
 	"time"
 
@@ -15,14 +18,14 @@ type TorProxy struct {
 	Onion *tor.OnionService
 }
 
-func NewTorProxy(bridge string) (*TorProxy, error) {
+func NewTorProxy(bridge string, config *config.Config) (*TorProxy, error) {
 	var args []string
 
 	if bridge != "" {
 		args = append(args, []string{
 			"UseBridges", "1",
-			"Bridge", bridge,
-			"ClientTransportPlugin", "obfs4 exec C:\\Users\\scout\\Desktop\\Tor Browser\\Browser\\TorBrowser\\Tor\\PluggableTransports\\lyrebird.exe",
+			"bridge", bridge,
+			"ClientTransportPlugin", fmt.Sprintf("obfs4 exec %s", config.LyrebirdPath),
 		}...)
 	}
 
@@ -33,7 +36,7 @@ func NewTorProxy(bridge string) (*TorProxy, error) {
 	}
 
 	t, err := tor.Start(nil, &tor.StartConf{
-		ProcessCreator:  process.NewCreator("C:\\Users\\scout\\Desktop\\Tor Browser\\Browser\\TorBrowser\\Tor\\tor.exe"),
+		ProcessCreator:  process.NewCreator(config.TorPath),
 		TempDataDirBase: tmpPath,
 		ExtraArgs:       args,
 		DebugWriter:     nil,
@@ -58,26 +61,26 @@ func NewTorProxy(bridge string) (*TorProxy, error) {
 }
 
 func (tp *TorProxy) Close() error {
-	err := tp.Tor.Close()
+	err := tp.Onion.Close()
+	if err != nil {
+		return errors.WithMessage(err, "Unable to close onion service")
+	}
+
+	err = tp.Tor.Close()
 	if err != nil {
 		return errors.WithMessage(err, "Unable to close Tor")
 	}
 
-	/*err = tp.Onion.Close()
-	if err != nil {
-		return errors.WithMessage(err, "Unable to close onion service")
-	}*/
-
 	return nil
 }
 
-func (tp *TorProxy) SwapChain() error {
-	_, err := tp.Tor.Control.SendRequest("SIGNAL NEWNYM")
+func (tp *TorProxy) SwapChain() (*control.Response, error) {
+	res, err := tp.Tor.Control.SendRequest("SIGNAL NEWNYM")
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	return err
+	return res, err
 }
 
 func (tp *TorProxy) GetProxyAddress() (string, error) {

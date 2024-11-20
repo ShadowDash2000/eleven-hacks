@@ -1,5 +1,5 @@
-github.com/ShadowDash2000/mailtm v0.3.1 h1:YvJP9NUJPKmwXVYBqEo6KOa4d3ak8q5eG5+KyFB4j28=
-github.com/ShadowDash2000/mailtm v0.3.1/go.mod h1:WiUHBxXtEbhsXWOlxjd/izzFWL4OlbmIubAyx6LH4HU=
+github.com/ShadowDash2000/mailtm v0.3.2 h1:VHuMfYF+vTKrPhQyc9x+gBm4OhA6TgCH2kXEeO6M5cE=
+github.com/ShadowDash2000/mailtm v0.3.2/go.mod h1:WiUHBxXtEbhsXWOlxjd/izzFWL4OlbmIubAyx6LH4HU=
 github.com/bep/debounce v1.2.1 h1:v67fRdBA9UQu2NhLFXrSg0Brw7CexQekrBwDMM8bzeY=
 github.com/bep/debounce v1.2.1/go.mod h1:H8yggRPQKLUhUoqrJC1bO2xNya7vanpDl7xR3ISbCJ0=
 github.com/cretz/bine v0.2.0 h1:8GiDRGlTgz+o8H9DSnsl+5MeBK4HsExxgl6WgzOCuZo=
