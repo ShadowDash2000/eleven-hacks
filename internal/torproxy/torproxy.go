@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"github.com/cretz/bine/control"
 	"os"
+	"os/exec"
+	"syscall"
 	"time"
 
 	"github.com/cretz/bine/process"
@@ -35,8 +37,17 @@ func NewTorProxy(bridge string, config *config.Config) (*TorProxy, error) {
 		return nil, errors.WithMessage(err, "Failed to create tmp directory")
 	}
 
+	creator := process.CmdCreatorFunc(func(ctx context.Context, args ...string) (*exec.Cmd, error) {
+		cmd := exec.Command(config.TorPath, args...)
+
+		cmd.SysProcAttr = &syscall.SysProcAttr{
+			HideWindow: true,
+		}
+		return cmd, nil
+	})
+
 	t, err := tor.Start(nil, &tor.StartConf{
-		ProcessCreator:  process.NewCreator(config.TorPath),
+		ProcessCreator:  creator,
 		TempDataDirBase: tmpPath,
 		ExtraArgs:       args,
 		DebugWriter:     nil,

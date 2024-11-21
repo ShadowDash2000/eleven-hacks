@@ -1,5 +1,6 @@
 import {useEffect, useRef, useState} from 'react';
 import { main } from "../wailsjs/go/models";
+import bgVideo from './assets/videos/in-the-end.mp4';
 import HCaptcha from '@hcaptcha/react-hcaptcha';
 import './App.css';
 import {
@@ -30,6 +31,14 @@ function App() {
     (async () => {
         setTorPath(await GetTorPath())
     })();
+
+    const [languages, setLanguages] = useState({});
+    (async () => {
+        setLanguages(await GetLanguages());
+    })();
+
+    const [sourceLanguage, setSourceLanguage] = useState("eng");
+    const [targetLanguage, setTargetLanguage] = useState("ru");
 
     const updateBridge = (e) => {
         UpdateBridge(e.target.value)
@@ -62,7 +71,7 @@ function App() {
     }
 
     const startDubbing = () => {
-        StartDubbing("eng", "ru");
+        StartDubbing(sourceLanguage, targetLanguage);
     }
 
     useEffect(() => {
@@ -72,10 +81,6 @@ function App() {
         });
         return () => window.runtime.EventsOff('LOG')
     });
-
-    const getLanguages = async () => {
-        let lang = await GetLanguages();
-    }
 
     return (
         <div id="app">
@@ -108,8 +113,26 @@ function App() {
                 />
             </div>
             <div>
-                <h2>3. Start dubbing</h2>
-                <p>If some videos have failed while dubbing, you can start dubbing again. API tokens keep alive while the program is open.</p>
+                <h2>3. Choose language</h2>
+                <div className="language">
+                    <div>
+                        <span>Source language</span>
+                        <select value={sourceLanguage} onChange={(e) => setSourceLanguage(e.target.value)}>
+                            {Object.entries(languages).map(([key, value]) => (<option value={key}>{value}</option>))}
+                        </select>
+                    </div>
+                    <div>
+                        <span>Target language</span>
+                        <select value={targetLanguage} onChange={(e) => setTargetLanguage(e.target.value)}>
+                            {Object.entries(languages).map(([key, value]) => (<option value={key}>{value}</option>))}
+                        </select>
+                    </div>
+                </div>
+            </div>
+            <div>
+                <h2>4. Start dubbing</h2>
+                <p>If some videos have failed while dubbing, you can start dubbing again. API tokens keep alive while
+                    the program is open.</p>
                 <button onClick={startDubbing}>Start dubbing</button>
             </div>
             <div>
@@ -117,7 +140,7 @@ function App() {
 
                 <div className="textarea-wrapper">
                     <video className="background-video" autoPlay loop muted>
-                        <source src="src/assets/videos/in-the-end.mp4" type="video/mp4"/>
+                        <source src={bgVideo} type="video/mp4"/>
                     </video>
                     <textarea
                         value={logs}
