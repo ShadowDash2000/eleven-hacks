@@ -14,7 +14,7 @@ import {
     SetTorPath,
 } from "../wailsjs/go/main/App";
 
-const hCaptchaSiteKey = "3aad1500-7e79-4051-aac5-6852324dab76";
+const hCaptchaSiteKey = import.meta.env.VITE_H_CAPTCHA_SITE_KEY;
 
 function App() {
     const [logs, setLog] = useState("");
