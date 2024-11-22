@@ -16,12 +16,13 @@ import (
 
 // App struct
 type App struct {
-	ctx          context.Context
-	bridge       string
-	savePath     string
-	dubbingFiles []DubbingFile
-	mx           *sync.RWMutex
-	config       *config.Config
+	ctx               context.Context
+	bridge            string
+	savePath          string
+	dubbingFiles      []DubbingFile
+	dubbingInProgress map[int]*elevenlabs.CreateDubbing
+	mx                *sync.RWMutex
+	config            *config.Config
 }
 
 type DubbingFile struct {
@@ -40,8 +41,9 @@ func NewApp() *App {
 	config.Load()
 
 	return &App{
-		mx:     &sync.RWMutex{},
-		config: config,
+		mx:                &sync.RWMutex{},
+		config:            config,
+		dubbingInProgress: make(map[int]*elevenlabs.CreateDubbing),
 	}
 }
 
@@ -61,6 +63,16 @@ func (a *App) GetTorPath() string {
 	}
 
 	return strings.TrimSuffix(a.config.TorPath, "Browser/TorBrowser/Tor/tor.exe")
+}
+
+func (a *App) GetDubbingInProgress() []string {
+	files := make([]string, len(a.dubbingFiles))
+
+	for i, f := range a.dubbingFiles {
+		files[i] = f.Path
+	}
+
+	return files
 }
 
 func (a *App) SetTorPath() (string, error) {
@@ -176,22 +188,34 @@ func (a *App) StartDubbing(srcLang, targetLang string) error {
 	a.dubbingFiles = nil
 	a.mx.Unlock()
 
+	el := elevenlabs.NewElevenLabs(a.config)
+
 	for _, dubbingFile := range dubbingFiles {
 		go func(dubbingFile DubbingFile) {
-			err := elevenlabs.NewElevenLabs(a.config).WaitForDubbedFileAndSave(
-				a.ctx,
-				120,
-				10,
-				dubbingFile.Path,
-				a.savePath,
-				a.bridge,
-				dubbingFile.ApiKey,
-			)
+			cd := &elevenlabs.CreateDubbing{
+				Interval:   10,
+				FilePath:   dubbingFile.Path,
+				SavePath:   a.savePath,
+				Bridge:     a.bridge,
+				SourceLang: srcLang,
+				TargetLang: targetLang,
+				ApiKey:     dubbingFile.ApiKey,
+			}
+
+			a.mx.Lock()
+			i := len(a.dubbingInProgress)
+			a.dubbingInProgress[i] = cd
+			a.mx.Unlock()
+
+			err := el.WaitForDubbedFileAndSave(a.ctx, cd)
 			if err != nil {
 				a.mx.Lock()
-				defer a.mx.Unlock()
 				a.dubbingFiles = append(a.dubbingFiles, dubbingFile)
+				delete(a.dubbingInProgress, i)
+				a.mx.Unlock()
 			}
+
+			runtime.EventsEmit(a.ctx, "DUBBING.UPDATE")
 		}(dubbingFile)
 	}
 

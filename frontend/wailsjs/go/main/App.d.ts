@@ -7,6 +7,8 @@ export function AddDubbingFile(arg1:main.Token):Promise<void>;
 
 export function ChooseFiles():Promise<Array<string>>;
 
+export function GetDubbingInProgress():Promise<Array<string>>;
+
 export function GetLanguages():Promise<{[key: string]: string}>;
 
 export function GetTorPath():Promise<string>;
