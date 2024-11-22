@@ -396,7 +396,7 @@ func (el *ElevenLabs) CreateApiKey(token string) (*ApiKeyResponse, error) {
 	return resData, nil
 }
 
-func (el *ElevenLabs) CreateDubbing(filePath string, apiKey *ApiKeyResponse, proxy *torproxy.TorProxy) (*CreateDubbingResponse, error) {
+func (el *ElevenLabs) CreateDubbing(filePath, sourceLang, targetLang string, apiKey *ApiKeyResponse, proxy *torproxy.TorProxy) (*CreateDubbingResponse, error) {
 	file, err := os.Open(filePath)
 	if err != nil {
 		return nil, errors.WithMessage(err, "Unable to open file for create dubbing request")
@@ -414,8 +414,8 @@ func (el *ElevenLabs) CreateDubbing(filePath string, apiKey *ApiKeyResponse, pro
 	body := &bytes.Buffer{}
 	writer := multipart.NewWriter(body)
 	writer.WriteField("name", "dub-dubbing")
-	writer.WriteField("source_lang", "en")
-	writer.WriteField("target_lang", "ru")
+	writer.WriteField("source_lang", sourceLang)
+	writer.WriteField("target_lang", targetLang)
 	writer.WriteField("watermark", "true")
 	writer.WriteField("end_time", "220")
 	writer.WriteField("use_profanity_filter", "false")
@@ -530,16 +530,26 @@ func (el *ElevenLabs) SaveDubbedFile(savePath, fileName string, dubbing *GetDubb
 	return err
 }
 
-func (el *ElevenLabs) WaitForDubbedFileAndSave(ctx context.Context, maxAttempts, interval int, filePath, savePath, bridge string, apiKey *ApiKeyResponse) error {
+type CreateDubbing struct {
+	Interval   int
+	FilePath   string
+	SavePath   string
+	Bridge     string
+	SourceLang string
+	TargetLang string
+	ApiKey     *ApiKeyResponse
+}
+
+func (el *ElevenLabs) WaitForDubbedFileAndSave(ctx context.Context, cd *CreateDubbing) error {
 	var err error
 	var wg sync.WaitGroup
 	var createDubbingRes *CreateDubbingResponse
 
-	runtime.EventsEmit(ctx, "LOG", fmt.Sprintf("Dubbing file: %s", filePath))
+	runtime.EventsEmit(ctx, "LOG", fmt.Sprintf("Dubbing file: %s", cd.FilePath))
 
-	fileName := filepath.Base(filePath)
+	fileName := filepath.Base(cd.FilePath)
 
-	proxy, err := torproxy.NewTorProxy(bridge, el.config)
+	proxy, err := torproxy.NewTorProxy(cd.Bridge, el.config)
 	if err != nil {
 		runtime.EventsEmit(ctx, "LOG", "Failed to start Tor proxy (maybe because it is blocked in your country).")
 		return err
@@ -547,7 +557,6 @@ func (el *ElevenLabs) WaitForDubbedFileAndSave(ctx context.Context, maxAttempts,
 	defer proxy.Close()
 
 	wg.Add(1)
-	maxCreateDubbingAttempts := 100
 	attempt := 0
 	go func() {
 		for {
@@ -561,24 +570,17 @@ func (el *ElevenLabs) WaitForDubbedFileAndSave(ctx context.Context, maxAttempts,
 				}
 			}
 
-			createDubbingRes, err = el.CreateDubbing(filePath, apiKey, proxy)
+			createDubbingRes, err = el.CreateDubbing(cd.FilePath, cd.SourceLang, cd.TargetLang, cd.ApiKey, proxy)
 			if err == nil {
 				runtime.EventsEmit(ctx, "LOG", fmt.Sprintf("Dubbing successfully started. - %s", fileName))
 				wg.Done()
 				return
 			}
 
-			if attempt >= maxCreateDubbingAttempts {
-				runtime.EventsEmit(ctx, "LOG", "Reached maximum limit of attempts to create dubbing. Try again or use/change bridge.")
-				err = errors.New("Reached maximum limit of attempts to create dubbing. Try again or use/change bridge.")
-				wg.Done()
-				return
-			}
-
 			if errors.Is(err, ErrUnusualActivityDetected) {
-				runtime.EventsEmit(ctx, "LOG", fmt.Sprintf("Bad proxy IP, trying to create dubbing again. [%d/%d] - %s", attempt, maxCreateDubbingAttempts, fileName))
+				runtime.EventsEmit(ctx, "LOG", fmt.Sprintf("%s - attempt %d", fileName, attempt))
 			} else {
-				fmt.Println(err)
+				runtime.EventsEmit(ctx, "LOG", fmt.Sprintf("%s - error: %s", fileName, err.Error()))
 			}
 		}
 	}()
@@ -588,15 +590,12 @@ func (el *ElevenLabs) WaitForDubbedFileAndSave(ctx context.Context, maxAttempts,
 		return err
 	}
 
-	ticker := time.NewTicker(time.Duration(interval) * time.Second)
-	attempt = 0
+	ticker := time.NewTicker(time.Duration(cd.Interval) * time.Second)
 	var dubbingData *GetDubbingDataResponse
 	wg.Add(1)
 	go func() {
 		for ; ; <-ticker.C {
-			attempt += 1
-
-			dubbingData, err = el.GetDubbingData(createDubbingRes, apiKey)
+			dubbingData, err = el.GetDubbingData(createDubbingRes, cd.ApiKey)
 			if err != nil {
 				ticker.Stop()
 				wg.Done()
@@ -623,12 +622,6 @@ func (el *ElevenLabs) WaitForDubbedFileAndSave(ctx context.Context, maxAttempts,
 				wg.Done()
 				return
 			}
-
-			if attempt >= maxAttempts {
-				ticker.Stop()
-				wg.Done()
-				return
-			}
 		}
 	}()
 	wg.Wait()
@@ -637,12 +630,12 @@ func (el *ElevenLabs) WaitForDubbedFileAndSave(ctx context.Context, maxAttempts,
 		return err
 	}
 
-	err = el.SaveDubbedFile(savePath, fileName, dubbingData, apiKey)
+	err = el.SaveDubbedFile(cd.SavePath, fileName, dubbingData, cd.ApiKey)
 	if err != nil {
 		return err
 	}
 
-	runtime.EventsEmit(ctx, "LOG", fmt.Sprintf("Dubbing was finished successfully and saved to %s.", savePath))
+	runtime.EventsEmit(ctx, "LOG", fmt.Sprintf("Dubbing was finished successfully and saved to %s.", cd.SavePath))
 
 	return nil
 }

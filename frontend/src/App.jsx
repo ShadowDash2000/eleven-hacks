@@ -12,6 +12,7 @@ import {
     AddDubbingFile,
     GetTorPath,
     SetTorPath,
+    GetDubbingInProgress,
 } from "../wailsjs/go/main/App";
 
 const hCaptchaSiteKey = "3aad1500-7e79-4051-aac5-6852324dab76";
@@ -40,6 +41,8 @@ function App() {
     const [sourceLanguage, setSourceLanguage] = useState("eng");
     const [targetLanguage, setTargetLanguage] = useState("ru");
 
+    const [dubbingInProgress, setDubbingInProgress] = useState([]);
+
     const updateBridge = (e) => {
         UpdateBridge(e.target.value)
     }
@@ -48,6 +51,7 @@ function App() {
         let filePaths = await ChooseFiles();
         addLog("Chosen files: " + filePaths.join(", "))
         await setTokens(filePaths);
+        setDubbingInProgress(await GetDubbingInProgress());
     }
 
     const setTokens = async (filePaths) => {
@@ -80,6 +84,13 @@ function App() {
             addLog(logMessage);
         });
         return () => window.runtime.EventsOff('LOG')
+    });
+
+    useEffect(() => {
+        window.runtime.EventsOn('DUBBING.UPDATE', async () => {
+            setDubbingInProgress(await GetDubbingInProgress());
+        });
+        return () => window.runtime.EventsOff('DUBBING.UPDATE')
     });
 
     return (

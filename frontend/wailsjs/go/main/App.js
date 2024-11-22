@@ -10,6 +10,10 @@ export function ChooseFiles() {
   return window['go']['main']['App']['ChooseFiles']();
 }
 
+export function GetDubbingInProgress() {
+  return window['go']['main']['App']['GetDubbingInProgress']();
+}
+
 export function GetLanguages() {
   return window['go']['main']['App']['GetLanguages']();
 }
