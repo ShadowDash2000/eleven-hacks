@@ -85,7 +85,7 @@ func (tp *TorProxy) Close() error {
 	return nil
 }
 
-func (tp *TorProxy) SwapChain() (*control.Response, error) {
+func (tp *TorProxy) NewNym() (*control.Response, error) {
 	res, err := tp.Tor.Control.SendRequest("SIGNAL NEWNYM")
 	if err != nil {
 		return nil, err

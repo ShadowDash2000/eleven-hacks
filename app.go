@@ -5,9 +5,10 @@ import (
 	"eleven-hacks/internal/config"
 	"eleven-hacks/internal/elevenlabs"
 	"eleven-hacks/internal/mailtm"
-	"errors"
 	"fmt"
+	"github.com/pkg/errors"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
+	"golang.org/x/exp/maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,23 +17,14 @@ import (
 
 // App struct
 type App struct {
-	ctx               context.Context
-	bridge            string
-	savePath          string
-	dubbingFiles      []DubbingFile
-	dubbingInProgress map[int]*elevenlabs.CreateDubbing
-	mx                *sync.RWMutex
-	config            *config.Config
-}
-
-type DubbingFile struct {
-	Path   string
-	ApiKey *elevenlabs.ApiKeyResponse
-}
-
-type Token struct {
-	FilePath string
-	Token    string
+	ctx          context.Context
+	cancel       context.CancelFunc
+	bridge       string
+	savePath     string
+	dubbingFiles map[int]*elevenlabs.DubbingFile
+	mx           *sync.RWMutex
+	wg           sync.WaitGroup
+	config       *config.Config
 }
 
 // NewApp creates a new App application struct
@@ -41,16 +33,23 @@ func NewApp() *App {
 	config.Load()
 
 	return &App{
-		mx:                &sync.RWMutex{},
-		config:            config,
-		dubbingInProgress: make(map[int]*elevenlabs.CreateDubbing),
+		mx:           &sync.RWMutex{},
+		config:       config,
+		dubbingFiles: make(map[int]*elevenlabs.DubbingFile),
 	}
 }
 
 // startup is called when the app starts. The context is saved
 // so we can call the runtime methods
 func (a *App) startup(ctx context.Context) {
-	a.ctx = ctx
+	a.ctx, a.cancel = context.WithCancel(ctx)
+}
+
+func (a *App) onBeforeClose(ctx context.Context) bool {
+	a.cancel()
+	a.wg.Wait()
+
+	return false
 }
 
 func (a *App) UpdateBridge(bridge string) {
@@ -65,14 +64,10 @@ func (a *App) GetTorPath() string {
 	return strings.TrimSuffix(a.config.TorPath, "Browser/TorBrowser/Tor/tor.exe")
 }
 
-func (a *App) GetDubbingInProgress() []string {
-	files := make([]string, len(a.dubbingFiles))
-
-	for i, f := range a.dubbingFiles {
-		files[i] = f.Path
-	}
-
-	return files
+func (a *App) GetDubbingFiles() []*elevenlabs.DubbingFile {
+	a.mx.RLock()
+	defer a.mx.RUnlock()
+	return maps.Values(a.dubbingFiles)
 }
 
 func (a *App) SetTorPath() (string, error) {
@@ -141,23 +136,39 @@ func (a *App) ChooseFiles() ([]string, error) {
 	if err != nil {
 		return nil, err
 	} else if len(filePaths) == 0 {
-		runtime.EventsEmit(a.ctx, "LOG", "File(-s) path is not specified.")
-		return nil, errors.New("file(-s) path is not specified")
+		err = errors.New("File(-s) path is not specified")
+		runtime.EventsEmit(a.ctx, "LOG", err.Error())
+		return nil, err
 	}
 
 	return filePaths, nil
 }
 
-func (a *App) AddDubbingFile(token Token) error {
-	apiKey, err := a.RegisterAndConfirmAccount(token.Token)
+func (a *App) AddDubbingFile(captchaToken string, filePath string) error {
+	a.mx.Lock()
+	i := len(a.dubbingFiles)
+	a.dubbingFiles[i] = &elevenlabs.DubbingFile{
+		Status: elevenlabs.StatusAccount,
+		Path:   filePath,
+		Name:   filepath.Base(filePath),
+	}
+	a.mx.Unlock()
+	runtime.EventsEmit(a.ctx, "DUBBING.UPDATE")
+
+	apiKey, err := a.RegisterAndConfirmAccount(captchaToken)
 	if err != nil {
-		runtime.EventsEmit(a.ctx, "LOG", fmt.Sprintf("Failed to create an account for dubbing file %s", token.FilePath))
+		a.mx.Lock()
+		delete(a.dubbingFiles, i)
+		a.mx.Unlock()
+		runtime.EventsEmit(a.ctx, "LOG", fmt.Sprintf("Failed to create an account for dubbing file %s", filePath))
 		return err
 	}
 
 	a.mx.Lock()
-	defer a.mx.Unlock()
-	a.dubbingFiles = append(a.dubbingFiles, DubbingFile{token.FilePath, apiKey})
+	a.dubbingFiles[i].Status = elevenlabs.StatusAdded
+	a.dubbingFiles[i].ApiKey = apiKey
+	a.mx.Unlock()
+	runtime.EventsEmit(a.ctx, "DUBBING.UPDATE")
 	return nil
 }
 
@@ -180,43 +191,34 @@ func (a *App) StartDubbing(srcLang, targetLang string) error {
 		return err
 	}
 
-	a.mx.RLock()
-	dubbingFiles := a.dubbingFiles
-	a.mx.RUnlock()
+	el := elevenlabs.NewElevenLabs(a.config, &assets)
+	dp := &elevenlabs.DubbingParams{
+		MaxTry:     10,
+		Interval:   10,
+		SavePath:   a.savePath,
+		Bridge:     a.bridge,
+		SourceLang: srcLang,
+		TargetLang: targetLang,
+	}
 
-	a.mx.Lock()
-	a.dubbingFiles = nil
-	a.mx.Unlock()
+	for i, dubbingFile := range a.dubbingFiles {
+		if dubbingFile.Status != elevenlabs.StatusAdded && dubbingFile.Status != elevenlabs.StatusError {
+			continue
+		}
 
-	el := elevenlabs.NewElevenLabs(a.config)
+		a.wg.Add(1)
 
-	for _, dubbingFile := range dubbingFiles {
-		go func(dubbingFile DubbingFile) {
-			cd := &elevenlabs.CreateDubbing{
-				Interval:   10,
-				FilePath:   dubbingFile.Path,
-				SavePath:   a.savePath,
-				Bridge:     a.bridge,
-				SourceLang: srcLang,
-				TargetLang: targetLang,
-				ApiKey:     dubbingFile.ApiKey,
-			}
-
-			a.mx.Lock()
-			i := len(a.dubbingInProgress)
-			a.dubbingInProgress[i] = cd
-			a.mx.Unlock()
-
-			err := el.WaitForDubbedFileAndSave(a.ctx, cd)
-			if err != nil {
+		go func(i int) {
+			defer a.wg.Done()
+			err := el.WaitForDubbedFileAndSave(a.ctx, a.dubbingFiles[i], dp)
+			if err == nil {
 				a.mx.Lock()
-				a.dubbingFiles = append(a.dubbingFiles, dubbingFile)
-				delete(a.dubbingInProgress, i)
+				delete(a.dubbingFiles, i)
 				a.mx.Unlock()
 			}
 
 			runtime.EventsEmit(a.ctx, "DUBBING.UPDATE")
-		}(dubbingFile)
+		}(i)
 	}
 
 	return nil
@@ -238,7 +240,7 @@ func (a *App) RegisterAndConfirmAccount(captcha string) (*elevenlabs.ApiKeyRespo
 	}
 	defer mail.DeleteAccount(mailAccount)
 
-	el := elevenlabs.NewElevenLabs(a.config)
+	el := elevenlabs.NewElevenLabs(a.config, &assets)
 	err = el.Register(mailAccount.Address, mailAccount.Password, captcha)
 	if err != nil {
 		runtime.EventsEmit(a.ctx, "LOG", err.Error())
@@ -262,8 +264,6 @@ func (a *App) RegisterAndConfirmAccount(captcha string) (*elevenlabs.ApiKeyRespo
 		runtime.EventsEmit(a.ctx, "LOG", err.Error())
 		return nil, err
 	}
-
-	fmt.Println(confirmationData)
 
 	err = el.UpdateAccount(confirmationData.OobCode)
 	if err != nil {
