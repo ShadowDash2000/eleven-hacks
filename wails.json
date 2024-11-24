@@ -9,5 +9,10 @@
   "author": {
     "name": "Miller Roman Olegovich",
     "email": "miller.roman@4px.ru"
+  },
+  "info": {
+    "productVersion": "1.1.0",
+    "productName": "Eleven Hacks",
+    "copyright": ""
   }
 }
