@@ -9,10 +9,13 @@ import (
 	"github.com/pkg/errors"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 	"golang.org/x/exp/maps"
+	"hash/crc32"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
 
 // App struct
@@ -21,7 +24,7 @@ type App struct {
 	cancel       context.CancelFunc
 	bridge       string
 	savePath     string
-	dubbingFiles map[int]*elevenlabs.DubbingFile
+	dubbingFiles map[uint32]*elevenlabs.DubbingFile
 	mx           *sync.RWMutex
 	wg           sync.WaitGroup
 	config       *config.Config
@@ -35,7 +38,7 @@ func NewApp() *App {
 	return &App{
 		mx:           &sync.RWMutex{},
 		config:       config,
-		dubbingFiles: make(map[int]*elevenlabs.DubbingFile),
+		dubbingFiles: make(map[uint32]*elevenlabs.DubbingFile),
 	}
 }
 
@@ -145,9 +148,12 @@ func (a *App) ChooseFiles() ([]string, error) {
 }
 
 func (a *App) AddDubbingFile(captchaToken string, filePath string) error {
+	timestamp := time.Now().Unix()
+	hashString := filePath + strconv.FormatInt(timestamp, 10)
+	hash := crc32.ChecksumIEEE([]byte(hashString))
+
 	a.mx.Lock()
-	i := len(a.dubbingFiles)
-	a.dubbingFiles[i] = &elevenlabs.DubbingFile{
+	a.dubbingFiles[hash] = &elevenlabs.DubbingFile{
 		Status: elevenlabs.StatusAccount,
 		Path:   filePath,
 		Name:   filepath.Base(filePath),
@@ -158,15 +164,16 @@ func (a *App) AddDubbingFile(captchaToken string, filePath string) error {
 	apiKey, err := a.RegisterAndConfirmAccount(captchaToken)
 	if err != nil {
 		a.mx.Lock()
-		delete(a.dubbingFiles, i)
+		delete(a.dubbingFiles, hash)
 		a.mx.Unlock()
+		runtime.EventsEmit(a.ctx, "DUBBING.UPDATE")
 		runtime.EventsEmit(a.ctx, "LOG", fmt.Sprintf("Failed to create an account for dubbing file %s", filePath))
 		return err
 	}
 
 	a.mx.Lock()
-	a.dubbingFiles[i].Status = elevenlabs.StatusAdded
-	a.dubbingFiles[i].ApiKey = apiKey
+	a.dubbingFiles[hash].Status = elevenlabs.StatusAdded
+	a.dubbingFiles[hash].ApiKey = apiKey
 	a.mx.Unlock()
 	runtime.EventsEmit(a.ctx, "DUBBING.UPDATE")
 	return nil
@@ -201,24 +208,24 @@ func (a *App) StartDubbing(srcLang, targetLang string) error {
 		TargetLang: targetLang,
 	}
 
-	for i, dubbingFile := range a.dubbingFiles {
+	for key, dubbingFile := range a.dubbingFiles {
 		if dubbingFile.Status != elevenlabs.StatusAdded && dubbingFile.Status != elevenlabs.StatusError {
 			continue
 		}
 
 		a.wg.Add(1)
 
-		go func(i int) {
+		go func(key uint32) {
 			defer a.wg.Done()
-			err := el.WaitForDubbedFileAndSave(a.ctx, a.dubbingFiles[i], dp)
+			err := el.WaitForDubbedFileAndSave(a.ctx, a.dubbingFiles[key], dp)
 			if err == nil {
 				a.mx.Lock()
-				delete(a.dubbingFiles, i)
+				delete(a.dubbingFiles, key)
 				a.mx.Unlock()
 			}
 
 			runtime.EventsEmit(a.ctx, "DUBBING.UPDATE")
-		}(i)
+		}(key)
 	}
 
 	return nil

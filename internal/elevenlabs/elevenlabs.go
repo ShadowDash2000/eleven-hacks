@@ -400,7 +400,7 @@ func (el *ElevenLabs) CreateApiKey(token string) (*ApiKeyResponse, error) {
 	return resData, nil
 }
 
-func (el *ElevenLabs) CreateDubbing(reader io.Reader, fileName, sourceLang, targetLang string, apiKey *ApiKeyResponse, proxy *torproxy.TorProxy) (*CreateDubbingResponse, error) {
+func (el *ElevenLabs) CreateDubbing(ctx context.Context, reader io.Reader, fileName, sourceLang, targetLang string, apiKey *ApiKeyResponse, proxy *torproxy.TorProxy) (*CreateDubbingResponse, error) {
 	seeker, ok := reader.(io.Seeker)
 	if !ok {
 		return nil, errors.New("Reader does not support seeker")
@@ -434,7 +434,7 @@ func (el *ElevenLabs) CreateDubbing(reader io.Reader, fileName, sourceLang, targ
 		},
 	}
 
-	req, err := http.NewRequest(http.MethodPost, CreateDubbingUrl, body)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, CreateDubbingUrl, body)
 	if err != nil {
 		return nil, errors.WithMessage(err, "Unable to create new create dubbing request")
 	}
@@ -677,11 +677,11 @@ TryingLoop:
 				}
 			}
 
-			createDubbingRes, err = el.CreateDubbing(wormFileReader, df.Name, dp.SourceLang, dp.TargetLang, df.ApiKey, proxy)
+			createDubbingRes, err = el.CreateDubbing(ctx, wormFileReader, df.Name, dp.SourceLang, dp.TargetLang, df.ApiKey, proxy)
 			if err == nil {
 				el.RemoveDubbing(createDubbingRes.DubbingId, df.ApiKey)
 
-				createDubbingRes, err = el.CreateDubbing(file, df.Name, dp.SourceLang, dp.TargetLang, df.ApiKey, proxy)
+				createDubbingRes, err = el.CreateDubbing(ctx, file, df.Name, dp.SourceLang, dp.TargetLang, df.ApiKey, proxy)
 				if err == nil {
 					runtime.EventsEmit(ctx, "LOG", fmt.Sprintf("Dubbing successfully started. - %s", df.Name))
 					proxy.Close()
