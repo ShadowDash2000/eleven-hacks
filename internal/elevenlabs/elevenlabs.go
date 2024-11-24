@@ -6,6 +6,7 @@ import (
 	"eleven-hacks/internal/config"
 	"eleven-hacks/internal/torproxy"
 	"eleven-hacks/pkg/multiparthelper"
+	"embed"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -22,6 +23,7 @@ import (
 
 type ElevenLabs struct {
 	config *config.Config
+	assets *embed.FS
 }
 
 type PreSignUpRequest struct {
@@ -110,12 +112,13 @@ const (
 	AccountUpdateUrl               = "https://identitytoolkit.googleapis.com/v1/accounts:update"
 	CreateApiKeyUrl                = "https://api.elevenlabs.io/v1/user/create-api-key"
 	CreateDubbingUrl               = "https://api.elevenlabs.io/v1/dubbing"
+	RemoveDubbingUrl               = "https://api.elevenlabs.io/v1/dubbing"
 	GetDubbingDataUrl              = "https://api.elevenlabs.io/v1/dubbing"
 	GetDubbedFileUrl               = "https://api.elevenlabs.io/v1/dubbing/%s/audio/%s"
 )
 
 var Languages = map[string]string{
-	"eng": "English",
+	"en":  "English",
 	"hi":  "Hindi",
 	"pt":  "Portuguese",
 	"zh":  "Chinese",
@@ -148,9 +151,10 @@ var Languages = map[string]string{
 
 var ErrUnusualActivityDetected = errors.New("Unusual activity detected. Change proxy.")
 
-func NewElevenLabs(config *config.Config) *ElevenLabs {
+func NewElevenLabs(config *config.Config, assets *embed.FS) *ElevenLabs {
 	return &ElevenLabs{
 		config: config,
+		assets: assets,
 	}
 }
 
@@ -396,20 +400,19 @@ func (el *ElevenLabs) CreateApiKey(token string) (*ApiKeyResponse, error) {
 	return resData, nil
 }
 
-func (el *ElevenLabs) CreateDubbing(filePath, sourceLang, targetLang string, apiKey *ApiKeyResponse, proxy *torproxy.TorProxy) (*CreateDubbingResponse, error) {
-	file, err := os.Open(filePath)
-	if err != nil {
-		return nil, errors.WithMessage(err, "Unable to open file for create dubbing request")
+func (el *ElevenLabs) CreateDubbing(reader io.Reader, fileName, sourceLang, targetLang string, apiKey *ApiKeyResponse, proxy *torproxy.TorProxy) (*CreateDubbingResponse, error) {
+	seeker, ok := reader.(io.Seeker)
+	if !ok {
+		return nil, errors.New("Reader does not support seeker")
 	}
-	defer file.Close()
 
 	buff := make([]byte, 512)
-	_, err = file.Read(buff)
+	_, err := reader.Read(buff)
 	if err != nil {
-		return nil, errors.WithMessage(err, "Unable to read the file for create dubbing request")
+		return nil, errors.WithMessage(err, fmt.Sprintf("Unable to read file %s", fileName))
 	}
 	fileContentType := http.DetectContentType(buff)
-	file.Seek(0, io.SeekStart)
+	seeker.Seek(0, io.SeekStart)
 
 	body := &bytes.Buffer{}
 	writer := multipart.NewWriter(body)
@@ -419,8 +422,9 @@ func (el *ElevenLabs) CreateDubbing(filePath, sourceLang, targetLang string, api
 	writer.WriteField("watermark", "true")
 	writer.WriteField("end_time", "220")
 	writer.WriteField("use_profanity_filter", "false")
-	formFileWriter, _ := multiparthelper.CreateFormFile("file", filepath.Base(file.Name()), fileContentType, writer)
-	io.Copy(formFileWriter, file)
+	formFileWriter, _ := multiparthelper.CreateFormFile("file", fileName, fileContentType, writer)
+	io.Copy(formFileWriter, reader)
+	seeker.Seek(0, io.SeekStart)
 	writer.Close()
 
 	dialer, _ := proxy.Tor.Dialer(context.Background(), nil)
@@ -466,6 +470,34 @@ func (el *ElevenLabs) CreateDubbing(filePath, sourceLang, targetLang string, api
 	}
 
 	return resData, nil
+}
+
+func (el *ElevenLabs) RemoveDubbing(dubbingId string, apiKey *ApiKeyResponse) error {
+	req, err := http.NewRequest(http.MethodDelete, fmt.Sprintf("%s/%s", RemoveDubbingUrl, dubbingId), &bytes.Buffer{})
+	if err != nil {
+		return errors.WithMessage(err, "Unable to create new remove dubbing request")
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("xi-api-key", apiKey.ApiKey)
+
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return errors.WithMessage(err, "Unable to execute remove dubbing request")
+	}
+	defer res.Body.Close()
+
+	if res.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(res.Body)
+		return errors.Errorf("Remove dubbing request responded with status code %d and body %s", res.StatusCode, string(body))
+	}
+
+	resData := &GetDubbingDataResponse{}
+	err = json.NewDecoder(res.Body).Decode(&resData)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (el *ElevenLabs) GetDubbingData(dubbing *CreateDubbingResponse, apiKey *ApiKeyResponse) (*GetDubbingDataResponse, error) {
@@ -530,76 +562,163 @@ func (el *ElevenLabs) SaveDubbedFile(savePath, fileName string, dubbing *GetDubb
 	return err
 }
 
-type CreateDubbing struct {
+type DubbingFile struct {
+	Status  DubbingFileStatus `json:"status"`
+	Path    string            `json:"path"`
+	Name    string            `json:"name"`
+	Attempt int               `json:"attempt"`
+	ApiKey  *ApiKeyResponse   `json:"apiKey"`
+}
+
+type DubbingFileStatus string
+
+const (
+	StatusAdded       DubbingFileStatus = "Added"
+	StatusAccount     DubbingFileStatus = "Creating an account"
+	StatusTryDubbing  DubbingFileStatus = "Trying to dub"
+	StatusDubbing     DubbingFileStatus = "Dubbing!"
+	StatusDownloading DubbingFileStatus = "Downloading..."
+	StatusError       DubbingFileStatus = "Error"
+)
+
+type DubbingParams struct {
+	MaxTry     int
 	Interval   int
-	FilePath   string
 	SavePath   string
 	Bridge     string
 	SourceLang string
 	TargetLang string
-	ApiKey     *ApiKeyResponse
 }
 
-func (el *ElevenLabs) WaitForDubbedFileAndSave(ctx context.Context, cd *CreateDubbing) error {
+func (el *ElevenLabs) WaitForDubbedFileAndSave(ctx context.Context, df *DubbingFile, dp *DubbingParams) error {
 	var err error
-	var wg sync.WaitGroup
+	var mx sync.Mutex
 	var createDubbingRes *CreateDubbingResponse
+	var proxy *torproxy.TorProxy
 
-	runtime.EventsEmit(ctx, "LOG", fmt.Sprintf("Dubbing file: %s", cd.FilePath))
+	defer func() {
+		if proxy != nil {
+			proxy.Close()
+		}
 
-	fileName := filepath.Base(cd.FilePath)
+		if err != nil {
+			mx.Lock()
+			df.Status = StatusError
+			mx.Unlock()
+			runtime.EventsEmit(ctx, "DUBBING.UPDATE")
+		}
+	}()
 
-	proxy, err := torproxy.NewTorProxy(cd.Bridge, el.config)
+	mx.Lock()
+	df.Status = StatusTryDubbing
+	mx.Unlock()
+	runtime.EventsEmit(ctx, "DUBBING.UPDATE")
+	runtime.EventsEmit(ctx, "LOG", fmt.Sprintf("Dubbing file: %s", df.Path))
+
+	wormFile, err := el.assets.Open("frontend/src/assets/videos/worm.mp4")
 	if err != nil {
-		runtime.EventsEmit(ctx, "LOG", "Failed to start Tor proxy (maybe because it is blocked in your country).")
+		err = errors.WithMessage(err, fmt.Sprintf("Unable to open worm file"))
+		runtime.EventsEmit(ctx, "LOG", err.Error())
 		return err
 	}
-	defer proxy.Close()
+	defer wormFile.Close()
 
-	wg.Add(1)
-	attempt := 0
-	go func() {
-		for {
-			attempt += 1
+	wormFileBuff := &bytes.Buffer{}
+	_, err = wormFileBuff.ReadFrom(wormFile)
+	if err != nil {
+		err = errors.WithMessage(err, fmt.Sprintf("Unable to read worm file - %s", err.Error()))
+		runtime.EventsEmit(ctx, "LOG", err.Error())
+		return err
+	}
+	wormFileReader := bytes.NewReader(wormFileBuff.Bytes())
 
-			if attempt > 0 {
-				_, err = proxy.SwapChain()
+	file, err := os.Open(df.Path)
+	if err != nil {
+		err = errors.WithMessage(err, fmt.Sprintf("Unable to open file %s", df.Path))
+		runtime.EventsEmit(ctx, "LOG", err.Error())
+		return err
+	}
+	defer file.Close()
+
+	df.Attempt = 0
+	try := 0
+
+TryingLoop:
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+			if try >= dp.MaxTry {
+				try = 0
+				proxy.Close()
+				proxy = nil
+			}
+
+			if proxy == nil {
+				proxy, err = torproxy.NewTorProxy(dp.Bridge, el.config)
 				if err != nil {
-					runtime.EventsEmit(ctx, "LOG", fmt.Sprintf("Failed to swap NYM (IP) - %s", fileName))
+					runtime.EventsEmit(ctx, "LOG", fmt.Sprintf("Failed to start Tor process. - %s", df.Path))
 					continue
 				}
 			}
 
-			createDubbingRes, err = el.CreateDubbing(cd.FilePath, cd.SourceLang, cd.TargetLang, cd.ApiKey, proxy)
+			mx.Lock()
+			df.Attempt += 1
+			mx.Unlock()
+			try += 1
+			runtime.EventsEmit(ctx, "DUBBING.UPDATE")
+
+			if df.Attempt > 0 {
+				_, err = proxy.NewNym()
+				if err != nil {
+					runtime.EventsEmit(ctx, "LOG", fmt.Sprintf("Failed to signal NEWNYM - %s", df.Name))
+					continue
+				}
+			}
+
+			createDubbingRes, err = el.CreateDubbing(wormFileReader, df.Name, dp.SourceLang, dp.TargetLang, df.ApiKey, proxy)
 			if err == nil {
-				runtime.EventsEmit(ctx, "LOG", fmt.Sprintf("Dubbing successfully started. - %s", fileName))
-				wg.Done()
-				return
+				el.RemoveDubbing(createDubbingRes.DubbingId, df.ApiKey)
+
+				createDubbingRes, err = el.CreateDubbing(file, df.Name, dp.SourceLang, dp.TargetLang, df.ApiKey, proxy)
+				if err == nil {
+					runtime.EventsEmit(ctx, "LOG", fmt.Sprintf("Dubbing successfully started. - %s", df.Name))
+					proxy.Close()
+					proxy = nil
+					break TryingLoop
+				}
 			}
 
 			if errors.Is(err, ErrUnusualActivityDetected) {
-				runtime.EventsEmit(ctx, "LOG", fmt.Sprintf("%s - attempt %d", fileName, attempt))
+				runtime.EventsEmit(ctx, "LOG", fmt.Sprintf("%s - attempt %d", df.Name, df.Attempt))
 			} else {
-				runtime.EventsEmit(ctx, "LOG", fmt.Sprintf("%s - error: %s", fileName, err.Error()))
+				runtime.EventsEmit(ctx, "LOG", fmt.Sprintf("%s - attempt %d, error: %s", df.Name, df.Attempt, err.Error()))
 			}
 		}
-	}()
-	wg.Wait()
+	}
 
 	if createDubbingRes == nil {
 		return err
 	}
 
-	ticker := time.NewTicker(time.Duration(cd.Interval) * time.Second)
+	mx.Lock()
+	df.Status = StatusDubbing
+	mx.Unlock()
+	runtime.EventsEmit(ctx, "DUBBING.UPDATE")
+
+	ticker := time.NewTicker(time.Duration(dp.Interval) * time.Second)
 	var dubbingData *GetDubbingDataResponse
-	wg.Add(1)
-	go func() {
-		for ; ; <-ticker.C {
-			dubbingData, err = el.GetDubbingData(createDubbingRes, cd.ApiKey)
+
+DubbingLoop:
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+			dubbingData, err = el.GetDubbingData(createDubbingRes, df.ApiKey)
 			if err != nil {
-				ticker.Stop()
-				wg.Done()
-				return
+				break
 			}
 
 			switch dubbingData.Status {
@@ -607,35 +726,34 @@ func (el *ElevenLabs) WaitForDubbedFileAndSave(ctx context.Context, cd *CreateDu
 				runtime.EventsEmit(ctx, "LOG", "Unusual activity detected. Try again or use/change bridge.")
 				err = ErrUnusualActivityDetected
 				ticker.Stop()
-				wg.Done()
-				return
+				break
 			case "dubbed":
-				runtime.EventsEmit(ctx, "LOG", fmt.Sprintf("Dubbing is ready. Downloading... - %s", fileName))
+				runtime.EventsEmit(ctx, "LOG", fmt.Sprintf("Dubbing is ready. Downloading... - %s", df.Name))
 				ticker.Stop()
-				wg.Done()
-				return
+				break DubbingLoop
 			case "dubbing":
-				runtime.EventsEmit(ctx, "LOG", fmt.Sprintf("Dubbing in progress. - %s", fileName))
+				runtime.EventsEmit(ctx, "LOG", fmt.Sprintf("Dubbing in progress. - %s", df.Name))
 			default:
 				err = errors.New(dubbingData.Err)
 				ticker.Stop()
-				wg.Done()
-				return
+				break
 			}
 		}
-	}()
-	wg.Wait()
+	}
 
 	if err != nil {
 		return err
 	}
 
-	err = el.SaveDubbedFile(cd.SavePath, fileName, dubbingData, cd.ApiKey)
+	df.Status = StatusDownloading
+	runtime.EventsEmit(ctx, "DUBBING.UPDATE")
+
+	err = el.SaveDubbedFile(dp.SavePath, df.Name, dubbingData, df.ApiKey)
 	if err != nil {
 		return err
 	}
 
-	runtime.EventsEmit(ctx, "LOG", fmt.Sprintf("Dubbing was finished successfully and saved to %s.", cd.SavePath))
+	runtime.EventsEmit(ctx, "LOG", fmt.Sprintf("Dubbing was finished successfully and saved to %s.", dp.SavePath))
 
 	return nil
 }

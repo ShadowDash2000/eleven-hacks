@@ -1,5 +1,5 @@
 import {useEffect, useRef, useState} from 'react';
-import { main } from "../wailsjs/go/models";
+import { elevenlabs } from "../wailsjs/go/models";
 import bgVideo from './assets/videos/in-the-end.mp4';
 import HCaptcha from '@hcaptcha/react-hcaptcha';
 import './App.css';
@@ -12,36 +12,23 @@ import {
     AddDubbingFile,
     GetTorPath,
     SetTorPath,
-    GetDubbingInProgress,
+    GetDubbingFiles,
 } from "../wailsjs/go/main/App";
 
 const hCaptchaSiteKey = import.meta.env.VITE_H_CAPTCHA_SITE_KEY;
 
 function App() {
-    const [logs, setLog] = useState("");
-    const addLog = (text) => {
-        setLog((prev) => prev + text + "\n");
-        textAreaRef.current.scrollTop = textAreaRef.current.scrollHeight;
-    }
-
-    const textAreaRef = useRef(null);
     const hCaptchaRef = useRef(null);
 
     const [savePath, setSavePath] = useState("");
     const [torPath, setTorPath] = useState("");
-    (async () => {
-        setTorPath(await GetTorPath())
-    })();
 
     const [languages, setLanguages] = useState({});
-    (async () => {
-        setLanguages(await GetLanguages());
-    })();
 
-    const [sourceLanguage, setSourceLanguage] = useState("eng");
+    const [sourceLanguage, setSourceLanguage] = useState("en");
     const [targetLanguage, setTargetLanguage] = useState("ru");
 
-    const [dubbingInProgress, setDubbingInProgress] = useState([]);
+    const [dubbingFiles, setDubbingFiles] = useState({});
 
     const updateBridge = (e) => {
         UpdateBridge(e.target.value)
@@ -49,24 +36,14 @@ function App() {
 
     const chooseFiles = async () => {
         let filePaths = await ChooseFiles();
-        addLog("Chosen files: " + filePaths.join(", "))
         await setTokens(filePaths);
-        setDubbingInProgress(await GetDubbingInProgress());
     }
 
     const setTokens = async (filePaths) => {
         for (const filePath of filePaths) {
             const res = await hCaptchaRef.current.execute({ async: true });
             if (res.response) {
-                let token = new main.Token();
-                token.FilePath = filePath;
-                token.Token = res.response;
-
-                await AddDubbingFile(token);
-
-                addLog("Captcha responded with token for the file " + filePath)
-            } else {
-                addLog("Captcha responded with error for the file " + filePath)
+                await AddDubbingFile(res.response, filePath);
             }
 
             await hCaptchaRef.current.resetCaptcha({ async: true });
@@ -79,19 +56,27 @@ function App() {
     }
 
     useEffect(() => {
+        (async () => {
+            setTorPath(await GetTorPath())
+        })();
+
+        (async () => {
+            setLanguages(await GetLanguages());
+        })();
+
         window.runtime.EventsOn('LOG', (logMessage) => {
             console.log(logMessage);
-            addLog(logMessage);
         });
-        return () => window.runtime.EventsOff('LOG')
-    });
 
-    useEffect(() => {
         window.runtime.EventsOn('DUBBING.UPDATE', async () => {
-            setDubbingInProgress(await GetDubbingInProgress());
+            setDubbingFiles(await GetDubbingFiles());
         });
-        return () => window.runtime.EventsOff('DUBBING.UPDATE')
-    });
+
+        return () => {
+            window.runtime.EventsOff('LOG');
+            window.runtime.EventsOff('DUBBING.UPDATE');
+        }
+    }, []);
 
     return (
         <div id="app">
@@ -142,21 +127,20 @@ function App() {
             </div>
             <div>
                 <h2>4. Start dubbing</h2>
-                <p>If some videos have failed while dubbing, you can start dubbing again. API tokens keep alive while
-                    the program is open.</p>
                 <button onClick={startDubbing}>Start dubbing</button>
             </div>
             <div>
-                <h2>Logs</h2>
+                <h2>Status</h2>
 
                 <div className="textarea-wrapper">
                     <video className="background-video" autoPlay loop muted>
                         <source src={bgVideo} type="video/mp4"/>
                     </video>
                     <textarea
-                        value={logs}
+                        value={Object.entries(dubbingFiles).map(([key, value]) => (
+                            dubbingFiles[key].name + " - " + dubbingFiles[key].status + " [Attempt " + dubbingFiles[key].attempt + "]\n"
+                        ))}
                         readOnly={true}
-                        ref={textAreaRef}
                     >
                     </textarea>
                 </div>
