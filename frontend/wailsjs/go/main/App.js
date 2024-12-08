@@ -18,6 +18,10 @@ export function GetLanguages() {
   return window['go']['main']['App']['GetLanguages']();
 }
 
+export function GetSavePath() {
+  return window['go']['main']['App']['GetSavePath']();
+}
+
 export function GetTorPath() {
   return window['go']['main']['App']['GetTorPath']();
 }
@@ -32,6 +36,10 @@ export function SetSavePath() {
 
 export function SetTorPath() {
   return window['go']['main']['App']['SetTorPath']();
+}
+
+export function SplitVideo(arg1) {
+  return window['go']['main']['App']['SplitVideo'](arg1);
 }
 
 export function StartDubbing(arg1, arg2) {

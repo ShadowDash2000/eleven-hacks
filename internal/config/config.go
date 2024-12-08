@@ -8,8 +8,10 @@ import (
 )
 
 type Config struct {
-	TorPath      string
-	LyrebirdPath string
+	TorPath         string `json:"TorPath"`
+	LyrebirdPath    string `json:"LyrebirdPath"`
+	DubbingSavePath string `json:"DubbingSavePath"`
+	Bridge          string `json:"Bridge"`
 }
 
 const configPath = "config.json"

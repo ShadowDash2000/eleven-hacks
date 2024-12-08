@@ -1,4 +1,4 @@
-package multiparthelper
+package multipart_helper
 
 import (
 	"fmt"

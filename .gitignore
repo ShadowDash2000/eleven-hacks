@@ -4,3 +4,4 @@ frontend/dist
 tmp
 .idea
 config.json
+log.txt

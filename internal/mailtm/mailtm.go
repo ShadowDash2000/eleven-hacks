@@ -67,7 +67,7 @@ func (mtm *MailTM) GetConfirmationUrl(rawHtml string) (string, error) {
 	}
 
 	if url == "" {
-		return "", errors.New("confirmation url not found in html")
+		return "", errors.New("Confirmation url not found in html")
 	}
 
 	return url, nil
