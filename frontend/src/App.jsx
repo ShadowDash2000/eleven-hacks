@@ -1,10 +1,14 @@
 import {useEffect, useRef, useState} from 'react';
-import { elevenlabs } from "../wailsjs/go/models";
 import bgVideo from './assets/videos/in-the-end.mp4';
 import HCaptcha from '@hcaptcha/react-hcaptcha';
+import {
+    EventsOn,
+    EventsOff
+} from '../wailsjs/runtime/runtime.js'
 import './App.css';
 import {
     SetSavePath,
+    GetSavePath,
     ChooseFiles,
     StartDubbing,
     GetLanguages,
@@ -13,9 +17,15 @@ import {
     GetTorPath,
     SetTorPath,
     GetDubbingFiles,
+    SplitVideo,
 } from "../wailsjs/go/main/App";
 
 const hCaptchaSiteKey = import.meta.env.VITE_H_CAPTCHA_SITE_KEY;
+
+const
+    EventError = "ERROR",
+    EventInfo = "INFO",
+    EventDubbingUpdate = "DUBBING.UPDATE"
 
 function App() {
     const hCaptchaRef = useRef(null);
@@ -29,10 +39,6 @@ function App() {
     const [targetLanguage, setTargetLanguage] = useState("ru");
 
     const [dubbingFiles, setDubbingFiles] = useState({});
-
-    const updateBridge = (e) => {
-        UpdateBridge(e.target.value)
-    }
 
     const chooseFiles = async () => {
         let filePaths = await ChooseFiles();
@@ -51,30 +57,35 @@ function App() {
         }
     }
 
-    const startDubbing = () => {
-        StartDubbing(sourceLanguage, targetLanguage);
-    }
-
     useEffect(() => {
         (async () => {
             setTorPath(await GetTorPath())
         })();
 
         (async () => {
+            setSavePath(await GetSavePath())
+        })();
+
+        (async () => {
             setLanguages(await GetLanguages());
         })();
 
-        window.runtime.EventsOn('LOG', (logMessage) => {
+        EventsOn(EventError, (logMessage) => {
             console.log(logMessage);
         });
 
-        window.runtime.EventsOn('DUBBING.UPDATE', async () => {
+        EventsOn(EventInfo, (logMessage) => {
+            console.log(logMessage);
+        });
+
+        EventsOn(EventDubbingUpdate, async () => {
             setDubbingFiles(await GetDubbingFiles());
         });
 
         return () => {
-            window.runtime.EventsOff('LOG');
-            window.runtime.EventsOff('DUBBING.UPDATE');
+            EventsOff(EventError);
+            EventsOff(EventInfo);
+            EventsOff(EventDubbingUpdate);
         }
     }, []);
 
@@ -82,8 +93,9 @@ function App() {
         <div id="app">
             <div className="input-box">
                 <span>Bridge (use it if Tor is blocked in your country)</span>
-                <input className="input" onChange={updateBridge} autoComplete="off" name="bridge"
-                       type="text"/>
+                <input className="input" onChange={async (e) => {
+                    await UpdateBridge(e.target.value);
+                }} autoComplete="off" name="bridge" type="text"/>
             </div>
             <div className="input-box">
                 <span>Tor path</span>
@@ -91,10 +103,17 @@ function App() {
                 <button onClick={async () => setTorPath(await SetTorPath())}>Select Tor browser folder</button>
             </div>
             <div id="input" className="input-box">
+                <span>Split video(-s)</span>
+                <button onClick={async () => {
+                    await SplitVideo(220)
+                }}>Split video(-s)
+                </button>
+            </div>
+            <div id="input" className="input-box">
                 <h2>1. Select save folder</h2>
                 <input readOnly={true} value={savePath}/>
                 <button onClick={async () => {
-                    setSavePath(await SetSavePath())
+                    setSavePath(await SetSavePath());
                 }}>Select save folder
                 </button>
             </div>
@@ -127,7 +146,9 @@ function App() {
             </div>
             <div>
                 <h2>4. Start dubbing</h2>
-                <button onClick={startDubbing}>Start dubbing</button>
+                <button onClick={async () => {
+                    await StartDubbing(sourceLanguage, targetLanguage);
+                }}>Start dubbing</button>
             </div>
             <div>
                 <h2>Status</h2>

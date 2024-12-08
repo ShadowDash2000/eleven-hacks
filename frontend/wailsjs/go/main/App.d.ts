@@ -10,6 +10,8 @@ export function GetDubbingFiles():Promise<Array<elevenlabs.DubbingFile>>;
 
 export function GetLanguages():Promise<{[key: string]: string}>;
 
+export function GetSavePath():Promise<string>;
+
 export function GetTorPath():Promise<string>;
 
 export function RegisterAndConfirmAccount(arg1:string):Promise<elevenlabs.ApiKeyResponse>;
@@ -17,6 +19,8 @@ export function RegisterAndConfirmAccount(arg1:string):Promise<elevenlabs.ApiKey
 export function SetSavePath():Promise<string>;
 
 export function SetTorPath():Promise<string>;
+
+export function SplitVideo(arg1:number):Promise<void>;
 
 export function StartDubbing(arg1:string,arg2:string):Promise<void>;
 
