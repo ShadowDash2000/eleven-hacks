@@ -20,13 +20,13 @@ type TorProxy struct {
 	Onion *tor.OnionService
 }
 
-func NewTorProxy(bridge string, config *config.Config) (*TorProxy, error) {
+func New(config *config.Config) (*TorProxy, error) {
 	var args []string
 
-	if bridge != "" {
+	if config.Bridge != "" {
 		args = append(args, []string{
 			"UseBridges", "1",
-			"bridge", bridge,
+			"bridge", config.Bridge,
 			"ClientTransportPlugin", fmt.Sprintf("obfs4 exec %s", config.LyrebirdPath),
 		}...)
 	}

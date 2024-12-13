@@ -21,135 +21,96 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
-type ElevenLabs struct{}
-
-type PreSignUpRequest struct {
-	AccountMetaData AccountMetaData `json:"account_metadata"`
-	Email           string          `json:"email"`
-	RecaptchaToken  string          `json:"recaptcha_token"`
+type ElevenLabs struct {
+	Proxy  *torproxy.TorProxy
+	client *http.Client
+	ctx    context.Context
 }
 
-type AccountMetaData struct {
-	AgreesToProductUpdates bool        `json:"agrees_to_product_updates"`
-	GeoLocation            GeoLocation `json:"geo_location"`
+func New(ctx context.Context, startProxy bool) (*ElevenLabs, error) {
+	var err error
+	el := &ElevenLabs{
+		ctx: ctx,
+	}
+
+	el.client = http.DefaultClient
+	config := app.GetConfig(ctx)
+
+	if startProxy {
+		el.Proxy, err = torproxy.New(config)
+		if err != nil {
+			return nil, err
+		}
+
+		dialer, _ := el.Proxy.Tor.Dialer(ctx, nil)
+		el.client = &http.Client{
+			Transport: &http.Transport{
+				DialContext: dialer.DialContext,
+			},
+		}
+	}
+
+	return el, nil
 }
 
-type GeoLocation struct {
-	City    string `json:"city"`
-	Country string `json:"country"`
-	Region  string `json:"region"`
-}
+func (el *ElevenLabs) doRequestWithRetries(req *http.Request, maxRetries int, expectedResponse []int) (*http.Response, *[]byte, error) {
+	var err error
+	var res *http.Response
+	var body []byte
 
-type AccountSignUpRequest struct {
-	ClientType        string `json:"clientType"`
-	Email             string `json:"email"`
-	Password          string `json:"password"`
-	ReturnSecureToken bool   `json:"returnSecureToken"`
-}
+	defer func() {
+		if res != nil {
+			body, _ = io.ReadAll(res.Body)
+			res.Body.Close()
+		}
+	}()
 
-type AccountUpdateRequest struct {
-	OobCode string `json:"oobCode"`
-}
+	var originalBody []byte
+	if req.Body != nil {
+		originalBody, err = io.ReadAll(req.Body)
+		if err != nil {
+			return nil, nil, err
+		}
+		req.Body = io.NopCloser(bytes.NewReader(originalBody))
+	}
 
-type InternalVerificationRequest struct {
-	Email            string `json:"email"`
-	VerificationCode string `json:"verification_code"`
-}
+	attempt := 1
 
-type EmailVerificationRequest struct {
-	Email string `json:"email"`
-}
+RequestLoop:
+	for {
+		select {
+		case <-el.ctx.Done():
+			return nil, nil, el.ctx.Err()
+		default:
+			res, err = el.client.Do(req)
+			if err == nil {
+				for _, code := range expectedResponse {
+					if res.StatusCode == code {
+						return res, &body, nil
+					}
+				}
+			}
 
-type ApiKeyRequest struct {
-	Name string `json:"name"`
-}
+			if res != nil {
+				res.Body.Close()
+			}
 
-type ApiKeyResponse struct {
-	ApiKey string `json:"xi_api_key"`
-}
+			attempt++
+			if attempt == maxRetries {
+				break RequestLoop
+			}
 
-type SignInRequest struct {
-	ClientType        string `json:"clientType"`
-	Email             string `json:"email"`
-	Password          string `json:"password"`
-	ReturnSecureToken bool   `json:"returnSecureToken"`
-}
+			if req.Body != nil {
+				req.Body = io.NopCloser(bytes.NewReader(originalBody))
+			}
 
-type SignInResponse struct {
-	Token string `json:"idToken"`
-}
+			if el.Proxy != nil {
+				el.Proxy.NewNym()
+			}
+		}
+	}
 
-type CreateDubbingResponse struct {
-	DubbingId        string  `json:"dubbing_id"`
-	ExpectedDuration float64 `json:"expected_duration_sec"`
-}
-
-type GetDubbingDataResponse struct {
-	DubbingId       string   `json:"dubbing_id"`
-	Name            string   `json:"name"`
-	Status          string   `json:"status"`
-	TargetLanguages []string `json:"target_languages"`
-	Err             string   `json:"error"`
-}
-
-type CreateDubbingErrorResponse struct {
-	Detail struct {
-		Status  string `json:"status"`
-		Message string `json:"message"`
-	} `json:"detail"`
-}
-
-const (
-	GoogleApiKey                   = "AIzaSyBSsRE_1Os04-bxpd5JTLIniy3UK4OqKys"
-	PreSignUpUrl                   = "https://api.elevenlabs.io/v1/user/pre-sign-up"
-	SendVerificationEmailUrl       = "https://api.elevenlabs.io/v1/user/send-verification-email"
-	PrepareInternalVerificationUrl = "https://api.elevenlabs.io/v1/user/prepare-internal-verification"
-	AccountSignUpUrl               = "https://identitytoolkit.googleapis.com/v1/accounts:signUp"
-	AccountSignInUrl               = "https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword"
-	AccountUpdateUrl               = "https://identitytoolkit.googleapis.com/v1/accounts:update"
-	CreateApiKeyUrl                = "https://api.elevenlabs.io/v1/user/create-api-key"
-	CreateDubbingUrl               = "https://api.elevenlabs.io/v1/dubbing"
-	RemoveDubbingUrl               = "https://api.elevenlabs.io/v1/dubbing"
-	GetDubbingDataUrl              = "https://api.elevenlabs.io/v1/dubbing"
-	GetDubbedFileUrl               = "https://api.elevenlabs.io/v1/dubbing/%s/audio/%s"
-)
-
-var Languages = map[string]string{
-	"en":  "English",
-	"hi":  "Hindi",
-	"pt":  "Portuguese",
-	"zh":  "Chinese",
-	"es":  "Spanish",
-	"fr":  "French",
-	"de":  "German",
-	"ja":  "Japanese",
-	"ar":  "Arabic",
-	"ru":  "Russian",
-	"ko":  "Korean",
-	"id":  "Indonesian",
-	"it":  "Italian",
-	"nl":  "Dutch",
-	"tr":  "Turkish",
-	"pl":  "Polish",
-	"sv":  "Swedish",
-	"fil": "Filipino",
-	"ms":  "Malay",
-	"ro":  "Romanian",
-	"uk":  "Ukrainian",
-	"el":  "Greek",
-	"cs":  "Czech",
-	"da":  "Danish",
-	"fi":  "Finnish",
-	"bg":  "Bulgarian",
-	"hr":  "Croatian",
-	"sk":  "Slovak",
-	"ta":  "Tamil",
-}
-
-var ErrUnusualActivityDetected = errors.New("Unusual activity detected. Change proxy.")
-
-func NewElevenLabs() *ElevenLabs {
-	return &ElevenLabs{}
+	return res, &body, err
 }
 
 func GetLanguages() map[string]string {
@@ -194,15 +155,12 @@ func (el *ElevenLabs) PreSignUp(email, captcha string) error {
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	res, err := http.DefaultClient.Do(req)
+	res, body, err := el.doRequestWithRetries(req, 50, []int{http.StatusOK})
 	if err != nil {
+		if res != nil && body != nil {
+			return errors.Errorf("Pre-sign-up request responded with status code %d and body %s", res.StatusCode, string(*body))
+		}
 		return errors.WithMessage(err, "Unable to execute pre-sign-up request")
-	}
-	defer res.Body.Close()
-
-	if res.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(res.Body)
-		return errors.Errorf("Pre-sign-up request responded with status code %d and body %s", res.StatusCode, string(body))
 	}
 
 	return nil
@@ -220,15 +178,12 @@ func (el *ElevenLabs) SendVerificationEmail(email string) error {
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	res, err := http.DefaultClient.Do(req)
+	res, body, err := el.doRequestWithRetries(req, 10, []int{http.StatusOK})
 	if err != nil {
+		if res != nil && body != nil {
+			return errors.Errorf("Email verification request responded with status code %d and body %s", res.StatusCode, string(*body))
+		}
 		return errors.WithMessage(err, "Unable to execute email verification request")
-	}
-	defer res.Body.Close()
-
-	if res.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(res.Body)
-		return errors.Errorf("Email verification request responded with status code %d and body %s", res.StatusCode, string(body))
 	}
 
 	return nil
@@ -250,22 +205,19 @@ func (el *ElevenLabs) SignUp(email, password string) error {
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Referer", "https://elevenlabs.io/")
 
-	res, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return errors.WithMessage(err, "Unable to execute account sign-up request")
-	}
-	defer res.Body.Close()
-
 	// Usually response status code will be 400, because tmp emails can't be verified by Google
 	// but ElevenLabs just ignores it
-	if res.StatusCode != http.StatusOK && res.StatusCode != http.StatusBadRequest {
-		body, _ := io.ReadAll(res.Body)
-		return errors.Errorf(
-			"Account sign-up request responded with status code %d and body %s\nURL: %s",
-			res.StatusCode,
-			string(body),
-			req.URL,
-		)
+	res, body, err := el.doRequestWithRetries(req, 10, []int{http.StatusOK, http.StatusBadRequest})
+	if err != nil {
+		if res != nil && body != nil {
+			return errors.Errorf(
+				"Account sign-up request responded with status code %d and body %s\nURL: %s",
+				res.StatusCode,
+				string(*body),
+				req.URL,
+			)
+		}
+		return errors.WithMessage(err, "Unable to execute account sign-up request")
 	}
 
 	return nil
@@ -287,19 +239,16 @@ func (el *ElevenLabs) SignIn(email, password string) (*SignInResponse, error) {
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Referer", "https://elevenlabs.io/")
 
-	res, err := http.DefaultClient.Do(req)
+	res, body, err := el.doRequestWithRetries(req, 10, []int{http.StatusOK})
 	if err != nil {
+		if res != nil && body != nil {
+			return nil, errors.Errorf("Sign-in request responded with status code %d and body %s", res.StatusCode, string(*body))
+		}
 		return nil, errors.WithMessage(err, "Unable to execute sign-in request")
-	}
-	defer res.Body.Close()
-
-	if res.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(res.Body)
-		return nil, errors.Errorf("Sign-in request responded with status code %d and body %s", res.StatusCode, string(body))
 	}
 
 	resData := &SignInResponse{}
-	err = json.NewDecoder(res.Body).Decode(&resData)
+	err = json.NewDecoder(bytes.NewReader(*body)).Decode(&resData)
 	if err != nil {
 		return nil, err
 	}
@@ -320,15 +269,12 @@ func (el *ElevenLabs) UpdateAccount(oobCode string) error {
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Referer", "https://elevenlabs.io/")
 
-	res, err := http.DefaultClient.Do(req)
+	res, body, err := el.doRequestWithRetries(req, 10, []int{http.StatusOK})
 	if err != nil {
+		if res != nil && body != nil {
+			return errors.Errorf("Account update request responded with status code %d and body %s", res.StatusCode, string(*body))
+		}
 		return errors.WithMessage(err, "Unable to execute account update request")
-	}
-	defer res.Body.Close()
-
-	if res.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(res.Body)
-		return errors.Errorf("Account update request responded with status code %d and body %s", res.StatusCode, string(body))
 	}
 
 	return nil
@@ -347,15 +293,12 @@ func (el *ElevenLabs) PrepareInternalVerification(email, verificationCode string
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	res, err := http.DefaultClient.Do(req)
+	res, body, err := el.doRequestWithRetries(req, 10, []int{http.StatusOK})
 	if err != nil {
+		if res != nil && body != nil {
+			return errors.Errorf("Prepare internal verification request responded with status code %d and body %s", res.StatusCode, string(*body))
+		}
 		return errors.WithMessage(err, "Unable to execute prepare internal verification request")
-	}
-	defer res.Body.Close()
-
-	if res.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(res.Body)
-		return errors.Errorf("Prepare internal verification request responded with status code %d and body %s", res.StatusCode, string(body))
 	}
 
 	return nil
@@ -374,19 +317,16 @@ func (el *ElevenLabs) CreateApiKey(token string) (*ApiKeyResponse, error) {
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+token)
 
-	res, err := http.DefaultClient.Do(req)
+	res, body, err := el.doRequestWithRetries(req, 10, []int{http.StatusOK})
 	if err != nil {
+		if res != nil && body != nil {
+			return nil, errors.Errorf("Create api key request responded with status code %d and body %s", res.StatusCode, string(*body))
+		}
 		return nil, errors.WithMessage(err, "Unable to execute create api key request")
-	}
-	defer res.Body.Close()
-
-	if res.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(res.Body)
-		return nil, errors.Errorf("Create api key request responded with status code %d and body %s", res.StatusCode, string(body))
 	}
 
 	resData := &ApiKeyResponse{}
-	err = json.NewDecoder(res.Body).Decode(&resData)
+	err = json.NewDecoder(bytes.NewReader(*body)).Decode(&resData)
 	if err != nil {
 		return nil, err
 	}
@@ -394,7 +334,7 @@ func (el *ElevenLabs) CreateApiKey(token string) (*ApiKeyResponse, error) {
 	return resData, nil
 }
 
-func (el *ElevenLabs) CreateDubbing(ctx context.Context, reader io.Reader, fileName, sourceLang, targetLang string, apiKey *ApiKeyResponse, proxy *torproxy.TorProxy) (*CreateDubbingResponse, error) {
+func (el *ElevenLabs) CreateDubbing(ctx context.Context, reader io.Reader, fileName, sourceLang, targetLang string, apiKey *ApiKeyResponse) (*CreateDubbingResponse, error) {
 	seeker, ok := reader.(io.Seeker)
 	if !ok {
 		return nil, errors.New("Reader does not support seeker")
@@ -421,13 +361,6 @@ func (el *ElevenLabs) CreateDubbing(ctx context.Context, reader io.Reader, fileN
 	seeker.Seek(0, io.SeekStart)
 	writer.Close()
 
-	dialer, _ := proxy.Tor.Dialer(context.Background(), nil)
-	client := &http.Client{
-		Transport: &http.Transport{
-			DialContext: dialer.DialContext,
-		},
-	}
-
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, CreateDubbingUrl, body)
 	if err != nil {
 		return nil, errors.WithMessage(err, "Unable to create new create dubbing request")
@@ -435,30 +368,29 @@ func (el *ElevenLabs) CreateDubbing(ctx context.Context, reader io.Reader, fileN
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 	req.Header.Add("xi-api-key", apiKey.ApiKey)
 
-	res, err := client.Do(req)
+	res, resBody, err := el.doRequestWithRetries(req, 1, []int{http.StatusOK})
 	if err != nil {
+		if res != nil {
+			// StatusForbidden means that we need to change IP
+			if res.StatusCode == http.StatusForbidden {
+				return nil, ErrUnusualActivityDetected
+			}
+
+			if resBody != nil {
+				errResponse := &CreateDubbingErrorResponse{}
+				err = json.NewDecoder(bytes.NewReader(*resBody)).Decode(&errResponse)
+				if err == nil && errResponse.Detail.Status == "detected_unusual_activity" {
+					return nil, ErrUnusualActivityDetected
+				}
+
+				return nil, errors.Errorf("Create dubbing request responded with status code %d and body %s", res.StatusCode, string(*resBody))
+			}
+		}
 		return nil, errors.WithMessage(err, "Unable to execute create dubbing request")
-	}
-	defer res.Body.Close()
-
-	if res.StatusCode != http.StatusOK {
-		// StatusForbidden means that we need to change IP
-		if res.StatusCode == http.StatusForbidden {
-			return nil, ErrUnusualActivityDetected
-		}
-
-		errResponse := &CreateDubbingErrorResponse{}
-		err = json.NewDecoder(res.Body).Decode(&errResponse)
-		if err == nil && errResponse.Detail.Status == "detected_unusual_activity" {
-			return nil, ErrUnusualActivityDetected
-		}
-
-		body, _ := io.ReadAll(res.Body)
-		return nil, errors.Errorf("Create dubbing request responded with status code %d and body %s", res.StatusCode, string(body))
 	}
 
 	resData := &CreateDubbingResponse{}
-	err = json.NewDecoder(res.Body).Decode(&resData)
+	err = json.NewDecoder(bytes.NewReader(*resBody)).Decode(&resData)
 	if err != nil {
 		return nil, err
 	}
@@ -474,19 +406,16 @@ func (el *ElevenLabs) RemoveDubbing(dubbingId string, apiKey *ApiKeyResponse) er
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("xi-api-key", apiKey.ApiKey)
 
-	res, err := http.DefaultClient.Do(req)
+	res, body, err := el.doRequestWithRetries(req, 1, []int{http.StatusOK})
 	if err != nil {
+		if res != nil && body != nil {
+			return errors.Errorf("Remove dubbing request responded with status code %d and body %s", res.StatusCode, string(*body))
+		}
 		return errors.WithMessage(err, "Unable to execute remove dubbing request")
-	}
-	defer res.Body.Close()
-
-	if res.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(res.Body)
-		return errors.Errorf("Remove dubbing request responded with status code %d and body %s", res.StatusCode, string(body))
 	}
 
 	resData := &GetDubbingDataResponse{}
-	err = json.NewDecoder(res.Body).Decode(&resData)
+	err = json.NewDecoder(bytes.NewReader(*body)).Decode(&resData)
 	if err != nil {
 		return err
 	}
@@ -502,19 +431,16 @@ func (el *ElevenLabs) GetDubbingData(dubbing *CreateDubbingResponse, apiKey *Api
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("xi-api-key", apiKey.ApiKey)
 
-	res, err := http.DefaultClient.Do(req)
+	res, body, err := el.doRequestWithRetries(req, 1, []int{http.StatusOK})
 	if err != nil {
+		if res != nil && body != nil {
+			return nil, errors.Errorf("Get dubbing data request responded with status code %d and body %s", res.StatusCode, string(*body))
+		}
 		return nil, errors.WithMessage(err, "Unable to execute get dubbing data request")
-	}
-	defer res.Body.Close()
-
-	if res.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(res.Body)
-		return nil, errors.Errorf("Get dubbing data request responded with status code %d and body %s", res.StatusCode, string(body))
 	}
 
 	resData := &GetDubbingDataResponse{}
-	err = json.NewDecoder(res.Body).Decode(&resData)
+	err = json.NewDecoder(bytes.NewReader(*body)).Decode(&resData)
 	if err != nil {
 		return nil, err
 	}
@@ -535,15 +461,12 @@ func (el *ElevenLabs) SaveDubbedFile(savePath, fileName string, dubbing *GetDubb
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("xi-api-key", apiKey.ApiKey)
 
-	res, err := http.DefaultClient.Do(req)
+	res, body, err := el.doRequestWithRetries(req, 1, []int{http.StatusOK})
 	if err != nil {
+		if res != nil && body != nil {
+			return errors.Errorf("Save dubbed file request responded with status code %d and body %s", res.StatusCode, string(*body))
+		}
 		return errors.WithMessage(err, "Unable to execute save dubbed file request")
-	}
-	defer res.Body.Close()
-
-	if res.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(res.Body)
-		return errors.Errorf("Save dubbed file request responded with status code %d and body %s", res.StatusCode, string(body))
 	}
 
 	filePath := filepath.Join(savePath, fileName+".mp4")
@@ -553,7 +476,7 @@ func (el *ElevenLabs) SaveDubbedFile(savePath, fileName string, dubbing *GetDubb
 	}
 	defer file.Close()
 
-	_, err = io.Copy(file, res.Body)
+	_, err = io.Copy(file, bytes.NewReader(*body))
 	return err
 }
 
@@ -585,18 +508,22 @@ type DubbingParams struct {
 	TargetLang string
 }
 
-func (el *ElevenLabs) WaitForDubbedFileAndSave(ctx context.Context, df *DubbingFile, dp *DubbingParams) error {
+func WaitForDubbedFileAndSave(ctx context.Context, df *DubbingFile, dp *DubbingParams) error {
 	var err error
 	var mx sync.Mutex
 	var createDubbingRes *CreateDubbingResponse
-	var proxy *torproxy.TorProxy
+
+	el, err := New(ctx, false)
+	if err != nil {
+		return err
+	}
 
 	config := app.GetConfig(ctx)
 	assets := app.GetAssets(ctx)
 
 	defer func() {
-		if proxy != nil {
-			proxy.Close()
+		if el.Proxy != nil {
+			el.Proxy.Close()
 		}
 
 		if err != nil {
@@ -647,14 +574,21 @@ TryingLoop:
 		default:
 			if try >= dp.MaxTry {
 				try = 0
-				proxy.Close()
-				proxy = nil
+				el.Proxy.Close()
+				el.Proxy = nil
 			}
 
-			if proxy == nil {
-				proxy, err = torproxy.NewTorProxy(dp.Bridge, config)
+			if el.Proxy == nil {
+				el.Proxy, err = torproxy.New(config)
 				if err != nil {
 					continue
+				}
+
+				dialer, _ := el.Proxy.Tor.Dialer(ctx, nil)
+				el.client = &http.Client{
+					Transport: &http.Transport{
+						DialContext: dialer.DialContext,
+					},
 				}
 			}
 
@@ -666,20 +600,18 @@ TryingLoop:
 			runtime.EventsEmit(ctx, event.DubbingUpdate)
 
 			if df.Attempt > 0 {
-				_, err = proxy.NewNym()
+				_, err = el.Proxy.NewNym()
 				if err != nil {
 					continue
 				}
 			}
 
-			createDubbingRes, err = el.CreateDubbing(ctx, wormFileReader, df.Name, dp.SourceLang, dp.TargetLang, df.ApiKey, proxy)
+			createDubbingRes, err = el.CreateDubbing(ctx, wormFileReader, df.Name, dp.SourceLang, dp.TargetLang, df.ApiKey)
 			if err == nil {
 				el.RemoveDubbing(createDubbingRes.DubbingId, df.ApiKey)
 
-				createDubbingRes, err = el.CreateDubbing(ctx, file, df.Name, dp.SourceLang, dp.TargetLang, df.ApiKey, proxy)
+				createDubbingRes, err = el.CreateDubbing(ctx, file, df.Name, dp.SourceLang, dp.TargetLang, df.ApiKey)
 				if err == nil {
-					proxy.Close()
-					proxy = nil
 					break TryingLoop
 				}
 			}
@@ -707,7 +639,10 @@ DubbingLoop:
 		case <-ticker.C:
 			dubbingData, err = el.GetDubbingData(createDubbingRes, df.ApiKey)
 			if err != nil {
-				break
+				_, err = el.Proxy.NewNym()
+				if err != nil {
+					continue
+				}
 			}
 
 			switch dubbingData.Status {
@@ -735,9 +670,22 @@ DubbingLoop:
 	df.Status = StatusDownloading
 	runtime.EventsEmit(ctx, event.DubbingUpdate)
 
-	err = el.SaveDubbedFile(dp.SavePath, df.Name, dubbingData, df.ApiKey)
-	if err != nil {
-		return err
+SaveDubbingLoop:
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+			err = el.SaveDubbedFile(dp.SavePath, df.Name, dubbingData, df.ApiKey)
+			if err != nil {
+				_, err = el.Proxy.NewNym()
+				if err != nil {
+					continue
+				}
+			}
+
+			break SaveDubbingLoop
+		}
 	}
 
 	return nil

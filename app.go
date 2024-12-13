@@ -225,6 +225,8 @@ func (a *App) AddDubbingFile(captchaToken string, filePath string) error {
 	a.mx.Unlock()
 	runtime.EventsEmit(a.ctx, event.DubbingUpdate)
 
+	a.wg.Add(1)
+	defer a.wg.Done()
 	apiKey, err := a.RegisterAndConfirmAccount(captchaToken)
 	if err != nil {
 		a.mx.Lock()
@@ -271,7 +273,6 @@ func (a *App) StartDubbing(srcLang, targetLang string) error {
 		return err
 	}
 
-	el := elevenlabs.NewElevenLabs()
 	dp := &elevenlabs.DubbingParams{
 		MaxTry:     10,
 		Interval:   10,
@@ -290,7 +291,7 @@ func (a *App) StartDubbing(srcLang, targetLang string) error {
 
 		go func(key uint32) {
 			defer a.wg.Done()
-			err := el.WaitForDubbedFileAndSave(a.ctx, a.dubbingFiles[key], dp)
+			err := elevenlabs.WaitForDubbedFileAndSave(a.ctx, a.dubbingFiles[key], dp)
 			if err == nil {
 				a.mx.Lock()
 				delete(a.dubbingFiles, key)
@@ -326,7 +327,12 @@ func (a *App) RegisterAndConfirmAccount(captcha string) (*elevenlabs.ApiKeyRespo
 	}
 	defer mail.DeleteAccount(mailAccount)
 
-	el := elevenlabs.NewElevenLabs()
+	el, err := elevenlabs.New(a.ctx, true)
+	if err != nil {
+		return nil, err
+	}
+	defer el.Proxy.Close()
+
 	err = el.Register(mailAccount.Address, mailAccount.Password, captcha)
 	if err != nil {
 		return nil, err
