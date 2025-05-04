@@ -8,7 +8,7 @@ export function ChooseFiles():Promise<Array<string>>;
 
 export function GetDubbingFiles():Promise<Array<elevenlabs.DubbingFile>>;
 
-export function GetLanguages():Promise<{[key: string]: string}>;
+export function GetLanguages():Promise<Record<string, string>>;
 
 export function GetSavePath():Promise<string>;
 

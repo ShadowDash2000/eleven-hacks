@@ -26,9 +26,7 @@ func CrawlByTagAll(tagName string, node *html.Node) []*html.Node {
 	}
 
 	for c := node.FirstChild; c != nil; c = c.NextSibling {
-		if node := CrawlByTag(tagName, c); node != nil {
-			nodes = append(nodes, node)
-		}
+		nodes = append(nodes, CrawlByTagAll(tagName, c)...)
 	}
 
 	return nodes

@@ -2,6 +2,7 @@ package mailtm
 
 import (
 	"eleven-hacks/pkg/htmlcrawler"
+	"fmt"
 	"net/url"
 	"strings"
 	"time"
@@ -45,32 +46,29 @@ func (mtm *MailTM) DeleteAccount(account *mailtm.Account) error {
 	return mtm.Client.DeleteAccount(account)
 }
 
-func (mtm *MailTM) GetConfirmationUrl(rawHtml string) (string, error) {
-	htmlReader := strings.NewReader(rawHtml)
+func (mtm *MailTM) GetLinkWithPrefix(message *mailtm.DetailedMessage, prefix string) (string, error) {
+	for _, rawHtml := range message.Html {
+		htmlReader := strings.NewReader(rawHtml)
 
-	document, err := html.Parse(htmlReader)
-	if err != nil {
-		return "", err
-	}
-
-	var url string
-	nodes := htmlcrawler.CrawlByTagAll("a", document)
-	for _, node := range nodes {
-		attributes := htmlcrawler.GetNodeAttributes(node)
-		if _, ok := attributes["href"]; !ok {
-			continue
+		document, err := html.Parse(htmlReader)
+		if err != nil {
+			return "", err
 		}
 
-		if ok := strings.HasPrefix(attributes["href"], "https://elevenlabs.io/app/action"); ok {
-			url = attributes["href"]
+		nodes := htmlcrawler.CrawlByTagAll("a", document)
+		for _, node := range nodes {
+			attributes := htmlcrawler.GetNodeAttributes(node)
+			if _, ok := attributes["href"]; !ok {
+				continue
+			}
+
+			if ok := strings.HasPrefix(attributes["href"], prefix); ok {
+				return attributes["href"], nil
+			}
 		}
 	}
 
-	if url == "" {
-		return "", errors.New("Confirmation url not found in html")
-	}
-
-	return url, nil
+	return "", fmt.Errorf("Link with prefix %s not found in message", prefix)
 }
 
 func (mtm *MailTM) GetConfirmationData(rawUrl string) (*ConfirmationData, error) {
