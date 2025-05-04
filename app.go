@@ -343,7 +343,7 @@ func (a *App) RegisterAndConfirmAccount(captcha string) (*elevenlabs.ApiKeyRespo
 		return nil, err
 	}
 
-	url, err := mail.GetConfirmationUrl(message.Html[0])
+	url, err := mail.GetLinkWithPrefix(message, "https://elevenlabs.io/app/action")
 	if err != nil {
 		return nil, err
 	}

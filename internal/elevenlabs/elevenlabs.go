@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/pkg/errors"
@@ -96,7 +97,7 @@ RequestLoop:
 			}
 
 			attempt++
-			if attempt == maxRetries {
+			if attempt >= maxRetries {
 				break RequestLoop
 			}
 
@@ -484,7 +485,7 @@ type DubbingFile struct {
 	Status  DubbingFileStatus `json:"status"`
 	Path    string            `json:"path"`
 	Name    string            `json:"name"`
-	Attempt int               `json:"attempt"`
+	Attempt int32             `json:"attempt"`
 	ApiKey  *ApiKeyResponse   `json:"apiKey"`
 }
 
@@ -500,7 +501,7 @@ const (
 )
 
 type DubbingParams struct {
-	MaxTry     int
+	MaxTry     int32
 	Interval   int
 	SavePath   string
 	Bridge     string
@@ -564,7 +565,7 @@ func WaitForDubbedFileAndSave(ctx context.Context, df *DubbingFile, dp *DubbingP
 	defer file.Close()
 
 	df.Attempt = 0
-	try := 0
+	try := int32(0)
 
 TryingLoop:
 	for {
@@ -592,9 +593,7 @@ TryingLoop:
 				}
 			}
 
-			mx.Lock()
-			df.Attempt += 1
-			mx.Unlock()
+			atomic.AddInt32(&df.Attempt, 1)
 			try += 1
 
 			runtime.EventsEmit(ctx, event.DubbingUpdate)

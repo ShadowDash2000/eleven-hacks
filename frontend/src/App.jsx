@@ -32,6 +32,7 @@ function App() {
 
     const [savePath, setSavePath] = useState("");
     const [torPath, setTorPath] = useState("");
+    const [autoRepeat, setAutoRepeat] = useState(true);
 
     const [languages, setLanguages] = useState({});
 
@@ -47,14 +48,30 @@ function App() {
 
     const setTokens = async (filePaths) => {
         for (const filePath of filePaths) {
-            const res = await hCaptchaRef.current.execute({ async: true });
-            if (res.response) {
-                await AddDubbingFile(res.response, filePath);
-            }
+            let ok = false;
+            while (!ok) {
+                ok = await addDubbingFile(filePath);
 
-            await hCaptchaRef.current.resetCaptcha({ async: true });
-            await new Promise(resolve => setTimeout(resolve, 2000));
+                await hCaptchaRef.current.resetCaptcha({async: true});
+                await new Promise(resolve => setTimeout(resolve, 2000));
+
+                if (!autoRepeat) break;
+            }
         }
+    }
+
+    const addDubbingFile = async filePath => {
+        const res = await hCaptchaRef.current.execute({ async: true });
+        if (res.response) {
+            try {
+                await AddDubbingFile(res.response, filePath);
+                return true;
+            } catch (e) {
+                return false;
+            }
+        }
+
+        return false;
     }
 
     useEffect(() => {
@@ -121,11 +138,22 @@ function App() {
                 <h2>2. Select files for dubbing</h2>
                 <p>There is no need for manual captcha check. Solve the captcha only if "puzzle" appears.
                     Manual captcha should appear if you're dubbing many videos in a row.</p>
-                <button onClick={chooseFiles}>Select files</button>
-                <HCaptcha
-                    sitekey={hCaptchaSiteKey}
-                    ref={hCaptchaRef}
-                />
+                <div className="input-box">
+                    <div>
+                        <label htmlFor="auto-repeat">Auto-repeat:</label>
+                        <input
+                            id="auto-repeat"
+                            type="checkbox"
+                            checked={autoRepeat}
+                            onChange={(e) => setAutoRepeat(e.target.checked)}
+                        />
+                    </div>
+                    <button onClick={chooseFiles}>Select files</button>
+                    <HCaptcha
+                        sitekey={hCaptchaSiteKey}
+                        ref={hCaptchaRef}
+                    />
+                </div>
             </div>
             <div>
                 <h2>3. Choose language</h2>
