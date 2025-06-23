@@ -22,6 +22,6 @@ export function SetTorPath():Promise<string>;
 
 export function SplitVideo(arg1:number):Promise<void>;
 
-export function StartDubbing(arg1:string,arg2:string):Promise<void>;
+export function StartDubbing(arg1:string,arg2:string,arg3:boolean):Promise<void>;
 
 export function UpdateBridge(arg1:string):Promise<void>;

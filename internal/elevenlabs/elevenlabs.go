@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -335,7 +336,7 @@ func (el *ElevenLabs) CreateApiKey(token string) (*ApiKeyResponse, error) {
 	return resData, nil
 }
 
-func (el *ElevenLabs) CreateDubbing(ctx context.Context, reader io.Reader, fileName, sourceLang, targetLang string, apiKey *ApiKeyResponse) (*CreateDubbingResponse, error) {
+func (el *ElevenLabs) CreateDubbing(ctx context.Context, reader io.Reader, fileName, sourceLang, targetLang string, disableVoiceCloning bool, apiKey *ApiKeyResponse) (*CreateDubbingResponse, error) {
 	seeker, ok := reader.(io.Seeker)
 	if !ok {
 		return nil, errors.New("Reader does not support seeker")
@@ -357,6 +358,7 @@ func (el *ElevenLabs) CreateDubbing(ctx context.Context, reader io.Reader, fileN
 	writer.WriteField("watermark", "true")
 	writer.WriteField("end_time", "220")
 	writer.WriteField("use_profanity_filter", "false")
+	writer.WriteField("disable_voice_cloning", strconv.FormatBool(disableVoiceCloning))
 	formFileWriter, _ := multiparthelper.CreateFormFile("file", fileName, fileContentType, writer)
 	io.Copy(formFileWriter, reader)
 	seeker.Seek(0, io.SeekStart)
@@ -501,12 +503,13 @@ const (
 )
 
 type DubbingParams struct {
-	MaxTry     int32
-	Interval   int
-	SavePath   string
-	Bridge     string
-	SourceLang string
-	TargetLang string
+	MaxTry              int32
+	Interval            int
+	SavePath            string
+	Bridge              string
+	SourceLang          string
+	TargetLang          string
+	DisableVoiceCloning bool
 }
 
 func WaitForDubbedFileAndSave(ctx context.Context, df *DubbingFile, dp *DubbingParams) error {
@@ -605,11 +608,11 @@ TryingLoop:
 				}
 			}
 
-			createDubbingRes, err = el.CreateDubbing(ctx, wormFileReader, df.Name, dp.SourceLang, dp.TargetLang, df.ApiKey)
+			createDubbingRes, err = el.CreateDubbing(ctx, wormFileReader, df.Name, dp.SourceLang, dp.TargetLang, dp.DisableVoiceCloning, df.ApiKey)
 			if err == nil {
 				el.RemoveDubbing(createDubbingRes.DubbingId, df.ApiKey)
 
-				createDubbingRes, err = el.CreateDubbing(ctx, file, df.Name, dp.SourceLang, dp.TargetLang, df.ApiKey)
+				createDubbingRes, err = el.CreateDubbing(ctx, file, df.Name, dp.SourceLang, dp.TargetLang, dp.DisableVoiceCloning, df.ApiKey)
 				if err == nil {
 					break TryingLoop
 				}
