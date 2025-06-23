@@ -249,7 +249,7 @@ func (a *App) AddDubbingFile(captchaToken string, filePath string) error {
 	return nil
 }
 
-func (a *App) StartDubbing(srcLang, targetLang string) error {
+func (a *App) StartDubbing(srcLang, targetLang string, disableVoiceCloning bool) error {
 	var err error
 
 	defer func() {
@@ -274,12 +274,13 @@ func (a *App) StartDubbing(srcLang, targetLang string) error {
 	}
 
 	dp := &elevenlabs.DubbingParams{
-		MaxTry:     10,
-		Interval:   10,
-		SavePath:   a.config.DubbingSavePath,
-		Bridge:     a.config.Bridge,
-		SourceLang: srcLang,
-		TargetLang: targetLang,
+		MaxTry:              10,
+		Interval:            10,
+		SavePath:            a.config.DubbingSavePath,
+		Bridge:              a.config.Bridge,
+		SourceLang:          srcLang,
+		TargetLang:          targetLang,
+		DisableVoiceCloning: disableVoiceCloning,
 	}
 
 	for key, dubbingFile := range a.dubbingFiles {

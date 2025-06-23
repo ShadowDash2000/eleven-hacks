@@ -33,6 +33,7 @@ function App() {
     const [savePath, setSavePath] = useState("");
     const [torPath, setTorPath] = useState("");
     const [autoRepeat, setAutoRepeat] = useState(true);
+    const [disableVoiceCloning, setDisableVoiceCloning] = useState(false);
 
     const [languages, setLanguages] = useState({});
 
@@ -174,8 +175,17 @@ function App() {
             </div>
             <div>
                 <h2>4. Start dubbing</h2>
+                <div>
+                    <label htmlFor="auto-repeat">Disable voice cloning:</label>
+                    <input
+                        id="disable-voice-cloning"
+                        type="checkbox"
+                        checked={disableVoiceCloning}
+                        onChange={(e) => setDisableVoiceCloning(e.target.checked)}
+                    />
+                </div>
                 <button onClick={async () => {
-                    await StartDubbing(sourceLanguage, targetLanguage);
+                    await StartDubbing(sourceLanguage, targetLanguage, disableVoiceCloning);
                 }}>Start dubbing</button>
             </div>
             <div>

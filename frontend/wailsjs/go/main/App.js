@@ -42,8 +42,8 @@ export function SplitVideo(arg1) {
   return window['go']['main']['App']['SplitVideo'](arg1);
 }
 
-export function StartDubbing(arg1, arg2) {
-  return window['go']['main']['App']['StartDubbing'](arg1, arg2);
+export function StartDubbing(arg1, arg2, arg3) {
+  return window['go']['main']['App']['StartDubbing'](arg1, arg2, arg3);
 }
 
 export function UpdateBridge(arg1) {
